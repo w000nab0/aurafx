@@ -80,6 +80,10 @@ export const TradingConfigForm = () => {
         <label style={label}>Pipサイズ</label>
         <input type="number" value={data.pip_size} disabled style={input} />
       </div>
+      <div style={row}>
+        <label style={label}>手数料率 (%)</label>
+        <input type="number" value={data.fee_rate * 100} disabled style={input} />
+      </div>
       <button
         type="submit"
         disabled={mutation.isPending}

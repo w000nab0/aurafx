@@ -31,6 +31,7 @@ async def update_trading_config(
         lot_size=payload.lot_size,
         stop_loss_pips=payload.stop_loss_pips,
         take_profit_pips=payload.take_profit_pips,
+        fee_rate=payload.fee_rate,
     )
     return TradingConfig(**manager.get_config())
 

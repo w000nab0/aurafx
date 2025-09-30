@@ -49,6 +49,7 @@ export const PositionPanel = () => {
           <th style={header}>現在値</th>
           <th style={header}>評価損益</th>
           <th style={header}>建玉時刻</th>
+          <th style={header}>手数料(発生済)</th>
           <th style={header}></th>
         </tr>
       </thead>
@@ -69,6 +70,7 @@ export const PositionPanel = () => {
                 {formatNumber(position.unrealized_pnl, 2)}
               </td>
               <td style={cell}>{new Date(position.opened_at).toLocaleTimeString()}</td>
+              <td style={cell}>{formatNumber(position.open_fee ?? 0)}</td>
               <td style={cell}>
                 <button
                   onClick={handleClose}

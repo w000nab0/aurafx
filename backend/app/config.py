@@ -34,6 +34,7 @@ class Settings(BaseSettings):
         "lot_size": 100,
         "stop_loss_pips": 20,
         "take_profit_pips": 40,
+        "fee_rate": 0.00002,
     }
     signal_cooldown_sec: int = 30
 

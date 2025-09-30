@@ -10,6 +10,7 @@ import websockets
 from websockets.client import WebSocketClientProtocol
 
 from ..services.broadcast import BroadcastHub
+from ..services.rate_limiter import FX_PUBLIC_WS_LIMIT
 from .candles import CandleAggregator, Candle
 from .indicators import IndicatorEngine, IndicatorStore
 from .signals import SignalEngine
@@ -92,8 +93,9 @@ class MarketStream:
         payloads: list[str],
     ) -> None:
         for payload in payloads:
+            await FX_PUBLIC_WS_LIMIT.acquire("ws-sub")
             await ws.send(payload)
-            await asyncio.sleep(0.05)  # avoid hitting rate limits
+            await asyncio.sleep(0.05)
 
     async def _listen(self, ws: WebSocketClientProtocol) -> None:
         async for message in ws:

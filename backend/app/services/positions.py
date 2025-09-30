@@ -14,6 +14,8 @@ class Position:
     stop_loss: float
     take_profit: float
     opened_at: datetime
+    fee_rate: float
+    open_fee: float
 
     def unrealized(self, price: float) -> float:
         sign = 1 if self.direction == "BUY" else -1
@@ -27,6 +29,7 @@ class PositionEvent:
     price: float
     timestamp: datetime
     pnl: float
+    fee_paid: float
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -41,6 +44,7 @@ class PositionEvent:
             "price": self.price,
             "timestamp": self.timestamp.isoformat(),
             "pnl": self.pnl,
+            "fee_paid": self.fee_paid,
         }
 
 
@@ -52,11 +56,13 @@ class PositionManager:
         lot_size: float,
         stop_loss_pips: float,
         take_profit_pips: float,
+        fee_rate: float,
     ) -> None:
         self._pip_size = pip_size
         self._lot_size = lot_size
         self._stop_loss_pips = stop_loss_pips
         self._take_profit_pips = take_profit_pips
+        self._fee_rate = fee_rate
         self._positions: Dict[str, Position] = {}
         self._last_price: Dict[str, float] = {}
 
@@ -76,8 +82,10 @@ class PositionManager:
                     "stop_loss": position.stop_loss,
                     "take_profit": position.take_profit,
                     "opened_at": position.opened_at.isoformat(),
-                    "unrealized_pnl": position.unrealized(price),
+                    "unrealized_pnl": position.unrealized(price) - position.open_fee,
                     "last_price": price,
+                    "open_fee": position.open_fee,
+                    "fee_rate": position.fee_rate,
                 }
             )
         return data
@@ -88,6 +96,7 @@ class PositionManager:
             "lot_size": self._lot_size,
             "stop_loss_pips": self._stop_loss_pips,
             "take_profit_pips": self._take_profit_pips,
+            "fee_rate": self._fee_rate,
         }
 
     def update_config(
@@ -97,6 +106,7 @@ class PositionManager:
         lot_size: Optional[float] = None,
         stop_loss_pips: Optional[float] = None,
         take_profit_pips: Optional[float] = None,
+        fee_rate: Optional[float] = None,
     ) -> None:
         if pip_size is not None:
             self._pip_size = pip_size
@@ -106,6 +116,8 @@ class PositionManager:
             self._stop_loss_pips = stop_loss_pips
         if take_profit_pips is not None:
             self._take_profit_pips = take_profit_pips
+        if fee_rate is not None:
+            self._fee_rate = fee_rate
 
     def handle_signal(self, symbol: str, direction: str, price: float, timestamp: datetime) -> List[PositionEvent]:
         existing = self._positions.get(symbol)
@@ -124,7 +136,8 @@ class PositionManager:
                 position=self._positions[symbol],
                 price=price,
                 timestamp=timestamp,
-                pnl=0.0,
+                pnl=-self._positions[symbol].open_fee,
+                fee_paid=self._positions[symbol].open_fee,
             )
             events.append(open_event)
         return events
@@ -158,14 +171,25 @@ class PositionManager:
         position = self._positions.pop(symbol, None)
         if not position:
             return None
-        pnl = position.unrealized(price)
+        pnl_before_fee = position.unrealized(price)
+        close_fee = price * position.lot_size * position.fee_rate
+        pnl = pnl_before_fee - close_fee
         self._last_price[symbol] = price
-        return PositionEvent(event_type=reason, position=position, price=price, timestamp=timestamp, pnl=pnl)
+        return PositionEvent(
+            event_type=reason,
+            position=position,
+            price=price,
+            timestamp=timestamp,
+            pnl=pnl,
+            fee_paid=close_fee,
+        )
 
     def _create_position(self, symbol: str, direction: str, price: float, timestamp: datetime) -> Position:
         offset = self._pip_size
         stop_loss_price = price - self._stop_loss_pips * offset if direction == "BUY" else price + self._stop_loss_pips * offset
         take_profit_price = price + self._take_profit_pips * offset if direction == "BUY" else price - self._take_profit_pips * offset
+        notional = price * self._lot_size
+        open_fee = notional * self._fee_rate
         return Position(
             symbol=symbol,
             direction=direction,
@@ -174,4 +198,6 @@ class PositionManager:
             stop_loss=stop_loss_price,
             take_profit=take_profit_price,
             opened_at=timestamp,
+            fee_rate=self._fee_rate,
+            open_fee=open_fee,
         )

@@ -26,29 +26,32 @@ broadcast_hub = BroadcastHub()
 aggregator = CandleAggregator(timeframes=[60, 300])
 indicator_store = IndicatorStore()
 indicator_config = settings.indicator_config
+position_config = settings.position_config
+bb_sigmas = [float(x) for x in indicator_config.get("bb_sigmas", [2.0])]
+signal_bb_sigma = float(indicator_config.get("signal_bb_sigma", bb_sigmas[0]))
 indicator_engine = IndicatorEngine(
     store=indicator_store,
     sma_periods=[int(x) for x in indicator_config.get("sma_periods", [5, 21])],
     rsi_periods=[int(x) for x in indicator_config.get("rsi_periods", [14])],
     rci_periods=[int(x) for x in indicator_config.get("rci_periods", [6, 9, 27])],
     bb_period=int(indicator_config.get("bb_period", 21)),
-    bb_sigmas=[float(x) for x in indicator_config.get("bb_sigmas", [2.0])],
+    bb_sigmas=bb_sigmas,
     trend_window=int(indicator_config.get("trend_window", 10)),
     trend_threshold_pips=float(indicator_config.get("trend_threshold_pips", 1.5)),
-    pip_size=float(settings.position_config.get("pip_size", 0.001)),
+    pip_size=float(position_config.get("pip_size", 0.001)),
     max_rows=int(indicator_config.get("max_rows", 1000)),
 )
 signal_engine = SignalEngine(
     cooldown_seconds=settings.signal_cooldown_sec,
     bb_period=int(indicator_config.get("bb_period", 21)),
-    bb_sigma=float(indicator_config.get("signal_bb_sigma", indicator_config.get("bb_sigmas", [2.0])[0])),
+    bb_sigma=signal_bb_sigma,
 )
-position_config = settings.position_config
 position_manager = PositionManager(
     pip_size=float(position_config.get("pip_size", 0.001)),
     lot_size=float(position_config.get("lot_size", 100)),
     stop_loss_pips=float(position_config.get("stop_loss_pips", 20)),
     take_profit_pips=float(position_config.get("take_profit_pips", 40)),
+    fee_rate=float(position_config.get("fee_rate", 0.00002)),
 )
 market_stream = MarketStream(
     endpoint=settings.websocket_endpoint,

@@ -5,6 +5,7 @@ export type TradingConfig = {
   lot_size: number;
   stop_loss_pips: number;
   take_profit_pips: number;
+  fee_rate: number;
 };
 
 export type PositionSnapshot = {
@@ -17,6 +18,8 @@ export type PositionSnapshot = {
   opened_at: string;
   last_price: number;
   unrealized_pnl: number;
+  open_fee?: number;
+  fee_rate?: number;
 };
 
 export async function fetchTradingConfig(): Promise<TradingConfig> {

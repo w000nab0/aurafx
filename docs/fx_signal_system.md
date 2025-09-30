@@ -21,7 +21,8 @@
   ```json
   {"command":"subscribe","channel":"ticker","symbol":"USD_JPY"}
   ```
-- Public WebSocketは認証不要。制限: 1 接続あたり subscribe/unsubscribe の発行回数が一定間隔で制限されているため（ドキュメント参照）、チャンネル購読は必要最小限にする。
+- Public WebSocketは認証不要。リクエストは1秒に1回が上限のため、接続時はRateLimiterでsubscribe間隔を制御。
+- Private REST API を利用する場合は `GET: 6回/秒`、`POST: 1回/秒` の制限を守る（`services/rate_limiter.py` にラッパーを用意）。
 
 ## システム全体フロー
 ```mermaid
@@ -79,17 +80,17 @@ backend/
   - Queueからティックを取り出し、1分/5分バケット単位でOHLCVを更新。
   - 足確定条件: `floor(timestamp/60) != 現行分` でフラッシュし、新しいDataFrameへappend。
 - **インジケータ計算（core/indicators.py）**
-- pandas DataFrameを使用。足確定時のみ最新数本（例: SMAで20本, RSIで14本）の部分計算。
-- pandas_ta: `df.ta.sma(length=20)`, `df.ta.rsi(length=14)`, `df.ta.bbands(length=20, std=2)`。
-- 結果は `IndicatorSnapshot` dataclassに格納し、`IndicatorStore` に保存。
+- pandasでOHLCを保持し、pandas_ta等を利用してSMA(5/21)/RSI(14)/BB(21±2,±3)を計算。RCI(6/9/27)は自前実装。
+- 線形回帰（Window=10本）でSMA21の傾きを算出し、1.5pipsを閾値に上昇/下降/横ばいを判定。
+- 結果は `IndicatorSnapshot` に格納し、WebSocketで `indicator` イベントとして配信。
 - **シグナル判定 + ポジション管理（core/signals.py / services/positions.py）**
-  - ティック受信ごとに最新スナップショットを参照し、BB±2σタッチで BUY/SELL を判定。
-  - `PositionManager` がポジションを管理。`stop_loss_pips` / `take_profit_pips`（pipサイズは FX API の `tickSize`、USD_JPYは 0.001）に達すると自動で `STOP_LOSS` / `TAKE_PROFIT` シグナルを生成。
-  - Lot数はデフォルト100（GMOコインの最小注文単位）。ブラウザから設定変更可能。
+  - ティック受信ごとに最新スナップショットを参照し、BB±σタッチで BUY/SELL を判定。使用σは `INDICATOR_CONFIG.signal_bb_sigma` で切替可能。
+  - `PositionManager` は Lot・pipサイズ・損切り/利確pips・手数料率（0.002%）を保持。ポジションオープン時にオープン手数料、クローズ時にクローズ手数料を差し引いた純損益を算出。
+  - 損益計算: `PnL = (価格差 × lot × 方向) - (open_fee + close_fee)`。各イベントに `fee_paid` を付与し、履歴に反映。
 - **API層**
   - `/ws/prices`: ティック・足・指標・シグナル・ポジションイベントを push。
   - `/api/trading/config`: 逆張りロジックの各種パラメータを取得/更新。
-  - `/api/trading/positions`: 現在のポジション一覧を返却。
+- `/api/trading/positions`: 現在のポジション一覧を返却（オープン手数料・評価損益を含む）。
   - `/api/trading/positions/{symbol}/close`: 手動クローズ。
 - **API層**
   - `/ws/prices`: FastAPI `WebSocket`。バックエンド内の`Broadcast`（Starlette）か`asyncio.Queue`でリアルタイムpush。
@@ -138,7 +139,10 @@ backend/
 
 ### 実装済みUI
 - 価格・指標・ポジションをカード/テーブルで可視化。チャート表示は無し。
-- `TradingConfigForm` から Lot数/損切りpips/利確pips を操作可能（pipサイズは読み取りのみ）。
+- `TradingConfigForm` から Lot数/損切りpips/利確pips を操作可能（pipサイズと手数料率は読み取り専用）。
+- `PositionPanel` で保有ポジションの評価損益・手数料を確認、手動クローズボタンあり。
+- `IndicatorPanel` で SMA5/21・RSI14・RCI6/9/27・BB21±2/±3・トレンド（傾きpips）を表示。
+- `SignalList` にシグナル時点の SMA/RSI とトレンド判定を表示。
 - `PositionPanel` で保有ポジションの評価損益と手動クローズボタンを表示（API経由でクローズすると WebSocket にも反映）。
 - `IndicatorPanel` / `CandleTable` で最新1分・5分足のOHLCとインジケータ値を確認。
 - `SignalList` は逆張りシグナルの履歴を表示（SMA/RSI含む）。

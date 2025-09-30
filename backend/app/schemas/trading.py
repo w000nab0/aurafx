@@ -11,6 +11,7 @@ class TradingConfig(BaseModel):
     lot_size: float = Field(..., gt=0)
     stop_loss_pips: float = Field(..., gt=0)
     take_profit_pips: float = Field(..., gt=0)
+    fee_rate: float = Field(..., ge=0)
 
 
 class TradingConfigUpdate(BaseModel):
@@ -18,6 +19,7 @@ class TradingConfigUpdate(BaseModel):
     lot_size: Optional[float] = Field(None, gt=0)
     stop_loss_pips: Optional[float] = Field(None, gt=0)
     take_profit_pips: Optional[float] = Field(None, gt=0)
+    fee_rate: Optional[float] = Field(None, ge=0)
 
 
 class PositionSnapshot(BaseModel):
