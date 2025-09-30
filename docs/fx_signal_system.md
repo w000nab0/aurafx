@@ -177,10 +177,10 @@ services:
       - ./backend:/app
     environment:
       - DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/fxsignals
-      - GMO_SYMBOLS=USD_JPY,EUR_JPY
+      - GMO_SYMBOLS=["USD_JPY","EUR_JPY"]
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "8000:8000"
+      - "8001:8000"
     depends_on:
       - db
 
@@ -191,7 +191,7 @@ services:
     volumes:
       - ./frontend:/usr/src/app
     environment:
-      - VITE_API_BASE=http://localhost:8000
+      - VITE_API_BASE=http://localhost:8001
     command: npm run dev -- --host 0.0.0.0 --port 5173
     ports:
       - "5173:5173"

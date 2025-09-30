@@ -25,7 +25,7 @@ market_stream = MarketStream(
 
 
 @asynccontextmanager
-def lifespan(app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover - startup logic
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover - startup logic
     logger.info("Starting aurafx backend with symbols=%s", settings.gmo_symbols)
     stream_task = asyncio.create_task(market_stream.run(), name="market-stream")
     try:

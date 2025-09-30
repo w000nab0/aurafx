@@ -20,7 +20,7 @@ type MarketState = {
 };
 
 const WS_ENDPOINT = `${
-  import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
+  import.meta.env.VITE_API_BASE ?? "http://localhost:8001"
 }/ws/prices`;
 
 export const useMarketStore = create<MarketState>((set, get) => ({
