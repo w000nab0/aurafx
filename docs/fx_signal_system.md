@@ -165,8 +165,9 @@ backend/
 ## ローカル開発環境（Docker Compose）
 ローカルのPython/Node環境を汚さずに開発できるよう、Docker Composeでバックエンド・フロント・DBをまとめて起動する。
 
+リポジトリ直下の `compose.yaml` を使って、以下の構成でスタックを起動できる。
+
 ```yaml
-# compose.yaml
 services:
   api:
     build:
@@ -217,6 +218,7 @@ volumes:
 2. `.env` などでAPIキーやRenderと異なる設定を管理。Compose起動時は `docker compose --env-file .env.dev up --build` を利用。
 3. FastAPIのホットリロードが効くように `volumes` でソースをコンテナにマウントし、`--reload` を付与。フロントも同様にViteのHMRを利用。
 4. テストやマイグレーションは `docker compose run --rm api pytest`、`docker compose run --rm api alembic upgrade head` のように実行。
+5. フロントエンドは必要に応じて `docker compose --profile ui up frontend` で起動する（APIとDBは自動依存起動）。
 
 ## MVP開発ステップ
 1. **ティック受信プロトタイプ**: ローカルで`websockets`を使いUSD_JPY tickerを受信・ログ出力。

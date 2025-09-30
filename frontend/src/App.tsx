@@ -1,0 +1,49 @@
+import { useEffect, type CSSProperties } from "react";
+
+import { useMarketStore } from "./hooks/useMarketStore";
+import { PriceTicker } from "./components/PriceTicker";
+import { SignalList } from "./components/SignalList";
+
+const containerStyle: CSSProperties = {
+  minHeight: "100vh",
+  backgroundColor: "#0f172a",
+  color: "#e2e8f0",
+  padding: "32px",
+  fontFamily: "Inter, system-ui, sans-serif"
+};
+
+const cardStyle: CSSProperties = {
+  backgroundColor: "#1e293b",
+  borderRadius: "12px",
+  padding: "24px",
+  boxShadow: "0 12px 32px rgba(15, 23, 42, 0.35)"
+};
+
+function App(): JSX.Element {
+  const { connect } = useMarketStore();
+
+  useEffect(() => {
+    connect();
+  }, [connect]);
+
+  return (
+    <div style={containerStyle}>
+      <div style={{ maxWidth: "960px", margin: "0 auto", display: "grid", gap: "24px" }}>
+        <header style={cardStyle}>
+          <h1 style={{ fontSize: "28px", marginBottom: "8px" }}>AuraFX Monitor</h1>
+          <p style={{ opacity: 0.7, fontSize: "15px" }}>
+            リアルタイムティックとシグナルを表示するダッシュボード（プロトタイプ）
+          </p>
+        </header>
+        <div style={cardStyle}>
+          <PriceTicker />
+        </div>
+        <div style={cardStyle}>
+          <SignalList />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default App;
