@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 from .indicators import IndicatorSnapshot
 
@@ -16,13 +16,31 @@ class SignalEvent:
     occurred_at: datetime
     indicators: IndicatorSnapshot
 
+    def as_dict(self) -> dict[str, object]:
+        data = {
+            "symbol": self.symbol,
+            "timeframe": self.timeframe,
+            "direction": self.direction,
+            "price": self.price,
+            "occurred_at": self.occurred_at.isoformat(),
+        }
+        data.update({
+            "sma": self.indicators.sma,
+            "rsi": self.indicators.rsi,
+            "bb_upper": self.indicators.bb_upper,
+            "bb_lower": self.indicators.bb_lower,
+            "indicator_timestamp": self.indicators.timestamp.isoformat(),
+        })
+        return data
+
 
 class SignalEngine:
     """Evaluates tick data against indicator snapshots to emit trading signals."""
 
     def __init__(self, cooldown_seconds: int = 30) -> None:
         self.cooldown_seconds = cooldown_seconds
-        self._last_signal: dict[tuple[str, str], datetime] = {}
+        self._last_signal: Dict[Tuple[str, str, str], datetime] = {}
+        self._last_indicator_timestamp: Dict[Tuple[str, str, str], datetime] = {}
 
     def evaluate(
         self,
@@ -33,5 +51,37 @@ class SignalEngine:
         indicator: IndicatorSnapshot,
         timestamp: datetime,
     ) -> Optional[SignalEvent]:
-        # TODO: implement Bollinger-band mean reversion logic
-        return None
+        if indicator.bb_upper is None or indicator.bb_lower is None:
+            return None
+
+        direction: Optional[str] = None
+        if price >= indicator.bb_upper:
+            direction = "SELL"
+        elif price <= indicator.bb_lower:
+            direction = "BUY"
+
+        if direction is None:
+            return None
+
+        key = (symbol, timeframe, direction)
+        last_indicator_ts = self._last_indicator_timestamp.get(key)
+        if last_indicator_ts == indicator.timestamp:
+            return None
+
+        last_time = self._last_signal.get(key)
+        if last_time is not None:
+            delta = (timestamp - last_time).total_seconds()
+            if delta < self.cooldown_seconds:
+                return None
+
+        event = SignalEvent(
+            symbol=symbol,
+            timeframe=timeframe,
+            direction=direction,
+            price=price,
+            occurred_at=timestamp,
+            indicators=indicator,
+        )
+        self._last_signal[key] = timestamp
+        self._last_indicator_timestamp[key] = indicator.timestamp
+        return event

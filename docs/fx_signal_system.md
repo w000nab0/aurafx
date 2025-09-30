@@ -12,7 +12,7 @@
 - **デプロイ**: Render（FastAPI Web Service, React Static Site, Managed PostgreSQL）
 
 ## GMOコイン WebSocket要点
-- エンドポイント: `wss://api.coin.z.com/ws/public/v1`
+- エンドポイント (FX): `wss://forex-api.coin.z.com/ws/public/v1`
 - 主要チャンネル:
   - `ticker`（最新レート: ask/bid/last/volume/timestamp）
   - `orderbooks`（板情報）
@@ -71,7 +71,7 @@ backend/
 
 ### 主要処理の詳細
 - **ティック受信（core/stream.py）**
-  - `websockets.connect` で `wss://api.coin.z.com/ws/public/v1` に接続。
+- `websockets.connect` で `wss://forex-api.coin.z.com/ws/public/v1` に接続。
   - 心拍監視（30sec ping/pong）、エラー時は指数バックオフで再接続。
   - 購読チャンネル: 最低限 `ticker`（USD_JPYなどFXペア）。追加で必要なら `orderbooks`。
   - 受信ごとに非同期Queueへティックデータをpush。

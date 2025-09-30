@@ -3,18 +3,35 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime
 from typing import Sequence
 
 import websockets
 from websockets.client import WebSocketClientProtocol
 
 from ..services.broadcast import BroadcastHub
+from .candles import CandleAggregator, Candle
+from .indicators import IndicatorEngine, IndicatorStore
+from .signals import SignalEngine
 
 logger = logging.getLogger(__name__)
 
 
+def _parse_timestamp(value: str) -> datetime:
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    return datetime.fromisoformat(value)
+
+
+def _format_timeframe(seconds: int) -> str:
+    if seconds % 60 == 0:
+        minutes = seconds // 60
+        return f"{minutes}m"
+    return f"{seconds}s"
+
+
 class MarketStream:
-    """Connects to GMOコイン WebSocket and publishes ticker updates."""
+    """Connects to GMOコイン WebSocket and publishes ticker, candle, and signal updates."""
 
     def __init__(
         self,
@@ -22,10 +39,18 @@ class MarketStream:
         endpoint: str,
         symbols: Sequence[str],
         broadcast: BroadcastHub,
+        aggregator: CandleAggregator,
+        indicator_engine: IndicatorEngine,
+        indicator_store: IndicatorStore,
+        signal_engine: SignalEngine,
     ) -> None:
         self._endpoint = endpoint
         self._symbols = symbols
         self._broadcast = broadcast
+        self._aggregator = aggregator
+        self._indicator_engine = indicator_engine
+        self._indicator_store = indicator_store
+        self._signal_engine = signal_engine
         self._stop_event = asyncio.Event()
 
     def stop(self) -> None:
@@ -38,6 +63,14 @@ class MarketStream:
             except Exception as exc:  # pragma: no cover - network resilience
                 logger.exception("Market stream error: %s", exc)
                 await asyncio.sleep(5)
+        # flush any remaining candles when stopping
+        for symbol, timeframe, candle in self._aggregator.flush_open():
+            await self._broadcast.publish(
+                {
+                    "type": "candle",
+                    "data": self._candle_payload(symbol, timeframe, candle),
+                }
+            )
 
     async def _run_once(self) -> None:
         subscribe_payloads = [
@@ -68,4 +101,77 @@ class MarketStream:
             except json.JSONDecodeError:
                 logger.debug("Non-JSON message: %s", message)
                 continue
+
+            symbol = data.get("symbol")
+            if not symbol:
+                continue
             await self._broadcast.publish({"type": "ticker", "data": data})
+
+            price = self._extract_price(data)
+            timestamp = _parse_timestamp(data["timestamp"])
+            volume = float(data.get("volume", 0.0))
+
+            closed = self._aggregator.add_tick(symbol, price=price, volume=volume, ts=timestamp)
+            for closed_symbol, timeframe, candle in closed:
+                await self._broadcast.publish(
+                    {
+                        "type": "candle",
+                        "data": self._candle_payload(closed_symbol, timeframe, candle),
+                    }
+                )
+                snapshot = self._indicator_engine.handle_candle(closed_symbol, timeframe, candle)
+                if snapshot is not None:
+                    await self._broadcast.publish(
+                        {
+                            "type": "indicator",
+                            "data": snapshot.as_dict(),
+                        }
+                    )
+
+            for timeframe in self._aggregator.iter_timeframes():
+                snapshot = self._indicator_store.get_snapshot(symbol, timeframe)
+                if snapshot is None:
+                    continue
+                event = self._signal_engine.evaluate(
+                    symbol=symbol,
+                    timeframe=_format_timeframe(timeframe),
+                    price=price,
+                    indicator=snapshot,
+                    timestamp=timestamp,
+                )
+                if event is not None:
+                    await self._broadcast.publish({"type": "signal", "data": event.as_dict()})
+
+    @staticmethod
+    def _extract_price(payload: dict) -> float:
+        ask = payload.get("ask")
+        bid = payload.get("bid")
+        last = payload.get("last") or payload.get("price")
+
+        def _to_float(value: object) -> float | None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        ask_v = _to_float(ask)
+        bid_v = _to_float(bid)
+        if ask_v is not None and bid_v is not None:
+            return (ask_v + bid_v) / 2
+        last_v = _to_float(last)
+        if last_v is not None:
+            return last_v
+        if ask_v is not None:
+            return ask_v
+        if bid_v is not None:
+            return bid_v
+        raise ValueError("No price fields available in ticker payload")
+
+    @staticmethod
+    def _candle_payload(symbol: str, timeframe: int, candle: Candle) -> dict:
+        payload = candle.as_dict()
+        payload.update({
+            "symbol": symbol,
+            "timeframe": _format_timeframe(timeframe),
+        })
+        return payload

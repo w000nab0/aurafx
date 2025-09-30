@@ -18,7 +18,13 @@ class Settings(BaseSettings):
     gmo_api_key: str | None = None
     gmo_api_secret: str | None = None
     websocket_endpoint: str = "wss://forex-api.coin.z.com/ws/public/v1"
-    indicator_config: dict[str, float] = {"bb_sigma": 2.0, "rsi_period": 14, "sma_period": 200}
+    indicator_config: dict[str, float | int] = {
+        "sma_period": 20,
+        "rsi_period": 14,
+        "bb_period": 20,
+        "bb_sigma": 2.0,
+        "max_rows": 1000,
+    }
     signal_cooldown_sec: int = 30
 
 

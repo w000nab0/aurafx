@@ -10,6 +10,9 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
+from .core.candles import CandleAggregator
+from .core.indicators import IndicatorEngine, IndicatorStore
+from .core.signals import SignalEngine
 from .core.stream import MarketStream
 from .services.broadcast import BroadcastHub
 
@@ -17,10 +20,26 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=settings.log_level)
 
 broadcast_hub = BroadcastHub()
+aggregator = CandleAggregator(timeframes=[60, 300])
+indicator_store = IndicatorStore()
+indicator_config = settings.indicator_config
+indicator_engine = IndicatorEngine(
+    store=indicator_store,
+    sma_period=int(indicator_config.get("sma_period", 20)),
+    rsi_period=int(indicator_config.get("rsi_period", 14)),
+    bb_period=int(indicator_config.get("bb_period", 20)),
+    bb_sigma=float(indicator_config.get("bb_sigma", 2.0)),
+    max_rows=int(indicator_config.get("max_rows", 1000)),
+)
+signal_engine = SignalEngine(cooldown_seconds=settings.signal_cooldown_sec)
 market_stream = MarketStream(
     endpoint=settings.websocket_endpoint,
     symbols=settings.gmo_symbols,
     broadcast=broadcast_hub,
+    aggregator=aggregator,
+    indicator_engine=indicator_engine,
+    indicator_store=indicator_store,
+    signal_engine=signal_engine,
 )
 
 

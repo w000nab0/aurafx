@@ -15,7 +15,9 @@ def test_one_minute_closure() -> None:
     closed = aggregator.add_tick("USD_JPY", price=150.15, volume=200, ts=make_ts(1, 0))
 
     assert len(closed) == 1
-    candle = closed[0]
+    symbol, timeframe, candle = closed[0]
+    assert symbol == "USD_JPY"
+    assert timeframe == 60
     assert candle.timestamp == make_ts(0, 0)
     assert candle.open == 150.10
     assert candle.close == 150.25
@@ -29,15 +31,13 @@ def test_five_minute_candle_aggregates_from_ticks() -> None:
 
     for minute, price in enumerate([150.0, 150.5, 150.2, 149.9, 150.6]):
         closed = aggregator.add_tick("USD_JPY", price=price, volume=100, ts=make_ts(minute, 0))
-        # every tick after the first closes the previous one-minute candle
         if minute > 0:
             assert len(closed) == 1
 
     closed = aggregator.add_tick("USD_JPY", price=150.4, volume=120, ts=make_ts(5, 0))
-    # minute 4 closes + first 5-minute bucket closes
     assert len(closed) == 2
-    minute_candle = next(c for c in closed if c.timestamp == make_ts(4, 0))
-    five_min_candle = next(c for c in closed if c.timestamp == make_ts(0, 0))
+    minute_candle = next(c for sym, tf, c in closed if tf == 60)
+    five_min_candle = next(c for sym, tf, c in closed if tf == 300)
 
     assert minute_candle.open == 150.6
     assert minute_candle.close == 150.6
@@ -55,6 +55,9 @@ def test_flush_open_candles_moves_to_history() -> None:
     aggregator.add_tick("USD_JPY", price=150.0, volume=50, ts=make_ts(0, 0))
     flushed = aggregator.flush_open()
     assert len(flushed) == 1
+    symbol, timeframe, candle = flushed[0]
+    assert symbol == "USD_JPY"
+    assert timeframe == 60
     history = aggregator.get_candles("USD_JPY", timeframe=60)
     assert len(history) == 1
-    assert history[0] == flushed[0]
+    assert history[0] == candle
