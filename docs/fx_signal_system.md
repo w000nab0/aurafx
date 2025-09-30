@@ -177,7 +177,7 @@ services:
       - ./backend:/app
     environment:
       - DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/fxsignals
-      - GMO_SYMBOLS=["USD_JPY","EUR_JPY"]
+      - GMO_SYMBOLS=["USD_JPY"]
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8001:8000"
@@ -215,7 +215,7 @@ volumes:
 
 ### セットアップ手順
 1. `backend/Dockerfile.dev` には `poetry install` や `uv` を使った開発用セットアップを記述。`frontend/Dockerfile.dev` は `node:20` などをベースに `npm install` を実行。
-2. `.env` などでAPIキーやRenderと異なる設定を管理。Compose起動時は `docker compose --env-file .env.dev up --build` を利用。
+2. `.env` などでAPIキーやRenderと異なる設定を管理。GMOのPrivate APIを使う場合は `GMO_API_KEY` / `GMO_API_SECRET` を `.env.dev` に記載し、本番はRenderの環境変数に設定する。Compose起動時は `docker compose --env-file .env.dev up --build` を利用。
 3. FastAPIのホットリロードが効くように `volumes` でソースをコンテナにマウントし、`--reload` を付与。フロントも同様にViteのHMRを利用。
 4. テストやマイグレーションは `docker compose run --rm api pytest`、`docker compose run --rm api alembic upgrade head` のように実行。
 5. フロントエンドは必要に応じて `docker compose --profile ui up frontend` で起動する（APIとDBは自動依存起動）。

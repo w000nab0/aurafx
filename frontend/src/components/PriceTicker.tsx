@@ -8,13 +8,15 @@ export const PriceTicker = () => {
 
   const display = useMemo(() => {
     if (!latest) return null;
-    const { ask, bid, last, timestamp, symbol } = latest;
+    const { ask, bid, timestamp, symbol, status } = latest;
+    const mid = !ask || !bid ? null : (Number(ask) + Number(bid)) / 2;
     return {
       ask,
       bid,
-      last,
+      mid,
       timestamp,
-      symbol
+      symbol,
+      status
     };
   }, [latest]);
 
@@ -55,12 +57,16 @@ export const PriceTicker = () => {
               <td style={cellValue}>{formatNumber(display.ask)}</td>
             </tr>
             <tr>
-              <th style={cellHeading}>Last</th>
-              <td style={cellValue}>{formatNumber(display.last)}</td>
+              <th style={cellHeading}>Mid</th>
+              <td style={cellValue}>{formatNumber(display.mid)}</td>
             </tr>
             <tr>
               <th style={cellHeading}>Timestamp</th>
               <td style={cellValue}>{display.timestamp ? String(display.timestamp) : "-"}</td>
+            </tr>
+            <tr>
+              <th style={cellHeading}>Status</th>
+              <td style={cellValue}>{String(display.status ?? "-")}</td>
             </tr>
           </tbody>
         </table>

@@ -15,7 +15,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     database_url: str
     gmo_symbols: List[str] = ["USD_JPY"]
-    websocket_endpoint: str = "wss://api.coin.z.com/ws/public/v1"
+    gmo_api_key: str | None = None
+    gmo_api_secret: str | None = None
+    websocket_endpoint: str = "wss://forex-api.coin.z.com/ws/public/v1"
     indicator_config: dict[str, float] = {"bb_sigma": 2.0, "rsi_period": 14, "sma_period": 200}
     signal_cooldown_sec: int = 30
 
