@@ -3,6 +3,10 @@ import { useEffect, type CSSProperties } from "react";
 import { useMarketStore } from "./hooks/useMarketStore";
 import { PriceTicker } from "./components/PriceTicker";
 import { SignalList } from "./components/SignalList";
+import { IndicatorPanel } from "./components/IndicatorPanel";
+import { CandleTable } from "./components/CandleTable";
+import { PositionPanel } from "./components/PositionPanel";
+import { TradingConfigForm } from "./components/TradingConfigForm";
 
 const containerStyle: CSSProperties = {
   minHeight: "100vh",
@@ -17,6 +21,11 @@ const cardStyle: CSSProperties = {
   borderRadius: "12px",
   padding: "24px",
   boxShadow: "0 12px 32px rgba(15, 23, 42, 0.35)"
+};
+
+const sectionTitle: CSSProperties = {
+  fontSize: "18px",
+  marginBottom: "12px",
 };
 
 function App(): JSX.Element {
@@ -39,6 +48,23 @@ function App(): JSX.Element {
           <PriceTicker />
         </div>
         <div style={cardStyle}>
+          <h2 style={sectionTitle}>ポジション設定</h2>
+          <TradingConfigForm />
+        </div>
+        <div style={cardStyle}>
+          <h2 style={sectionTitle}>保有ポジション</h2>
+          <PositionPanel />
+        </div>
+        <div style={cardStyle}>
+          <h2 style={sectionTitle}>最新インジケータ</h2>
+          <IndicatorPanel />
+        </div>
+        <div style={cardStyle}>
+          <h2 style={sectionTitle}>最新足データ</h2>
+          <CandleTable />
+        </div>
+        <div style={cardStyle}>
+          <h2 style={sectionTitle}>シグナル履歴</h2>
           <SignalList />
         </div>
       </div>

@@ -13,6 +13,7 @@ from ..services.broadcast import BroadcastHub
 from .candles import CandleAggregator, Candle
 from .indicators import IndicatorEngine, IndicatorStore
 from .signals import SignalEngine
+from ..services.positions import PositionManager
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class MarketStream:
         indicator_engine: IndicatorEngine,
         indicator_store: IndicatorStore,
         signal_engine: SignalEngine,
+        position_manager: PositionManager,
     ) -> None:
         self._endpoint = endpoint
         self._symbols = symbols
@@ -51,6 +53,7 @@ class MarketStream:
         self._indicator_engine = indicator_engine
         self._indicator_store = indicator_store
         self._signal_engine = signal_engine
+        self._position_manager = position_manager
         self._stop_event = asyncio.Event()
 
     def stop(self) -> None:
@@ -111,6 +114,15 @@ class MarketStream:
             timestamp = _parse_timestamp(data["timestamp"])
             volume = float(data.get("volume", 0.0))
 
+            position_event = self._position_manager.evaluate_price(symbol, price, timestamp)
+            if position_event:
+                await self._broadcast.publish(
+                    {
+                        "type": "position",
+                        "data": position_event.as_dict(),
+                    }
+                )
+
             closed = self._aggregator.add_tick(symbol, price=price, volume=volume, ts=timestamp)
             for closed_symbol, timeframe, candle in closed:
                 await self._broadcast.publish(
@@ -141,6 +153,10 @@ class MarketStream:
                 )
                 if event is not None:
                     await self._broadcast.publish({"type": "signal", "data": event.as_dict()})
+                    if event.direction in {"BUY", "SELL"}:
+                        pos_events = self._position_manager.handle_signal(symbol, event.direction, price, timestamp)
+                        for pos_event in pos_events:
+                            await self._broadcast.publish({"type": "position", "data": pos_event.as_dict()})
 
     @staticmethod
     def _extract_price(payload: dict) -> float:

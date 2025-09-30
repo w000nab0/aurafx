@@ -18,8 +18,10 @@ export const SignalList = () => {
                 <th style={headerStyle}>時刻</th>
                 <th style={headerStyle}>シンボル</th>
                 <th style={headerStyle}>足</th>
-                <th style={headerStyle}>シグナル</th>
+                <th style={headerStyle}>方向</th>
                 <th style={headerStyle}>価格</th>
+                <th style={headerStyle}>SMA</th>
+                <th style={headerStyle}>RSI</th>
               </tr>
             </thead>
             <tbody>
@@ -30,6 +32,8 @@ export const SignalList = () => {
                   <td style={cellStyle}>{String(signal?.timeframe ?? "-")}</td>
                   <td style={{ ...cellStyle, fontWeight: 600 }}>{String(signal?.direction ?? "-")}</td>
                   <td style={cellStyle}>{formatNumber(signal?.price)}</td>
+                  <td style={cellStyle}>{formatNumber(signal?.sma)}</td>
+                  <td style={cellStyle}>{formatNumber(signal?.rsi)}</td>
                 </tr>
               ))}
             </tbody>

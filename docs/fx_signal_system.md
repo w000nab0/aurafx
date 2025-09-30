@@ -79,13 +79,18 @@ backend/
   - Queueからティックを取り出し、1分/5分バケット単位でOHLCVを更新。
   - 足確定条件: `floor(timestamp/60) != 現行分` でフラッシュし、新しいDataFrameへappend。
 - **インジケータ計算（core/indicators.py）**
-  - pandas DataFrameを使用。足確定時のみ最新数本（例: SMAで200本, RSIで14本）の部分計算。
-  - pandas_ta: `df.ta.sma(length=200)`, `df.ta.rsi(length=14)`, `df.ta.bbands(length=20, std=2)`。
-  - 結果は `IndicatorSnapshot` dataclassに格納し、`services/indicator_store.py` に保存。
-- **シグナル判定（core/signals.py）**
-  - ティック受信ごとに最新スナップショットを参照し、BB逆張り（価格が `bb_upper` 以上→SELL, `bb_lower` 以下→BUY）などを判定。
-  - 同一方向の連続判定を避けるためにヒステリシスとクールダウン（n秒/1足内で1回）を導入。
-  - 発生時は `signals_repo.save()` でDB insertしつつ、フロント通知Queueへイベント送信。
+- pandas DataFrameを使用。足確定時のみ最新数本（例: SMAで20本, RSIで14本）の部分計算。
+- pandas_ta: `df.ta.sma(length=20)`, `df.ta.rsi(length=14)`, `df.ta.bbands(length=20, std=2)`。
+- 結果は `IndicatorSnapshot` dataclassに格納し、`IndicatorStore` に保存。
+- **シグナル判定 + ポジション管理（core/signals.py / services/positions.py）**
+  - ティック受信ごとに最新スナップショットを参照し、BB±2σタッチで BUY/SELL を判定。
+  - `PositionManager` がポジションを管理。`stop_loss_pips` / `take_profit_pips`（pipサイズは FX API の `tickSize`、USD_JPYは 0.001）に達すると自動で `STOP_LOSS` / `TAKE_PROFIT` シグナルを生成。
+  - Lot数はデフォルト100（GMOコインの最小注文単位）。ブラウザから設定変更可能。
+- **API層**
+  - `/ws/prices`: ティック・足・指標・シグナル・ポジションイベントを push。
+  - `/api/trading/config`: 逆張りロジックの各種パラメータを取得/更新。
+  - `/api/trading/positions`: 現在のポジション一覧を返却。
+  - `/api/trading/positions/{symbol}/close`: 手動クローズ。
 - **API層**
   - `/ws/prices`: FastAPI `WebSocket`。バックエンド内の`Broadcast`（Starlette）か`asyncio.Queue`でリアルタイムpush。
   - `/api/signals/latest`: 直近シグナルを返す。
@@ -130,6 +135,13 @@ backend/
   - `components/LatencyIndicator.tsx`
   - `hooks/useMarketWS.ts`
   - `services/api.ts`
+
+### 実装済みUI
+- 価格・指標・ポジションをカード/テーブルで可視化。チャート表示は無し。
+- `TradingConfigForm` から Lot数/損切りpips/利確pips を操作可能（pipサイズは読み取りのみ）。
+- `PositionPanel` で保有ポジションの評価損益と手動クローズボタンを表示（API経由でクローズすると WebSocket にも反映）。
+- `IndicatorPanel` / `CandleTable` で最新1分・5分足のOHLCとインジケータ値を確認。
+- `SignalList` は逆張りシグナルの履歴を表示（SMA/RSI含む）。
 
 ## デプロイと運用（Render）
 1. **FastAPIサービス**

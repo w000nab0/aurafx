@@ -15,6 +15,9 @@ from .core.indicators import IndicatorEngine, IndicatorStore
 from .core.signals import SignalEngine
 from .core.stream import MarketStream
 from .services.broadcast import BroadcastHub
+from .services.positions import PositionManager
+from . import deps
+from .api.routes import trading
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=settings.log_level)
@@ -32,6 +35,13 @@ indicator_engine = IndicatorEngine(
     max_rows=int(indicator_config.get("max_rows", 1000)),
 )
 signal_engine = SignalEngine(cooldown_seconds=settings.signal_cooldown_sec)
+position_config = settings.position_config
+position_manager = PositionManager(
+    pip_size=float(position_config.get("pip_size", 0.001)),
+    lot_size=float(position_config.get("lot_size", 100)),
+    stop_loss_pips=float(position_config.get("stop_loss_pips", 20)),
+    take_profit_pips=float(position_config.get("take_profit_pips", 40)),
+)
 market_stream = MarketStream(
     endpoint=settings.websocket_endpoint,
     symbols=settings.gmo_symbols,
@@ -40,7 +50,10 @@ market_stream = MarketStream(
     indicator_engine=indicator_engine,
     indicator_store=indicator_store,
     signal_engine=signal_engine,
+    position_manager=position_manager,
 )
+deps.position_manager = position_manager
+deps.broadcast_hub = broadcast_hub
 
 
 @asynccontextmanager
@@ -64,6 +77,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(trading.router)
 
 
 @app.get("/healthz")

@@ -25,6 +25,12 @@ class Settings(BaseSettings):
         "bb_sigma": 2.0,
         "max_rows": 1000,
     }
+    position_config: dict[str, float | int] = {
+        "pip_size": 0.001,
+        "lot_size": 100,
+        "stop_loss_pips": 20,
+        "take_profit_pips": 40,
+    }
     signal_cooldown_sec: int = 30
 
 
