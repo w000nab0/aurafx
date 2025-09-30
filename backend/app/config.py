@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import List
+from typing import Any, List
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -18,12 +18,16 @@ class Settings(BaseSettings):
     gmo_api_key: str | None = None
     gmo_api_secret: str | None = None
     websocket_endpoint: str = "wss://forex-api.coin.z.com/ws/public/v1"
-    indicator_config: dict[str, float | int] = {
-        "sma_period": 20,
-        "rsi_period": 14,
-        "bb_period": 20,
-        "bb_sigma": 2.0,
+    indicator_config: dict[str, Any] = {
+        "sma_periods": [5, 21],
+        "rsi_periods": [14],
+        "rci_periods": [6, 9, 27],
+        "bb_period": 21,
+        "bb_sigmas": [2.0, 3.0],
+        "trend_window": 10,
+        "trend_threshold_pips": 1.5,
         "max_rows": 1000,
+        "trend_method": "regression",
     }
     position_config: dict[str, float | int] = {
         "pip_size": 0.001,

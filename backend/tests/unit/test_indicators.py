@@ -21,10 +21,14 @@ def test_indicator_engine_produces_snapshot() -> None:
     store = IndicatorStore()
     engine = IndicatorEngine(
         store=store,
-        sma_period=3,
-        rsi_period=3,
+        sma_periods=[3],
+        rsi_periods=[3],
+        rci_periods=[3],
         bb_period=3,
-        bb_sigma=2.0,
+        bb_sigmas=[2.0],
+        trend_window=3,
+        trend_threshold_pips=0.1,
+        pip_size=0.001,
         max_rows=100,
     )
 
@@ -35,26 +39,28 @@ def test_indicator_engine_produces_snapshot() -> None:
 
     assert snapshot is not None
     assert snapshot.close == 103.0
-    assert snapshot.sma is not None and round(snapshot.sma, 2) == 102.0
-    assert snapshot.rsi is not None
-    assert snapshot.bb_upper is not None
-    assert snapshot.bb_lower is not None
+    assert round(snapshot.sma.get("3", 0.0), 2) == 102.0
+    assert "3" in snapshot.rsi
+    assert "3" in snapshot.rci
+    bb = snapshot.bb.get("3_2.0") or snapshot.bb.get("3_2")
+    assert bb is not None and bb.get("upper") is not None
     latest = store.get_snapshot("USD_JPY", 60)
     assert latest is snapshot
 
 
 def test_signal_engine_emits_and_respects_cooldown() -> None:
-    signal_engine = SignalEngine(cooldown_seconds=30)
+    signal_engine = SignalEngine(cooldown_seconds=30, bb_period=21, bb_sigma=2.0)
     base_ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
     indicator = IndicatorSnapshot(
         symbol="USD_JPY",
         timeframe="1m",
         timestamp=base_ts,
         close=105.0,
-        sma=105.0,
-        rsi=55.0,
-        bb_upper=105.5,
-        bb_lower=104.5,
+        sma={"21": 105.0},
+        rsi={"14": 55.0},
+        rci={},
+        bb={"21_2.0": {"upper": 105.5, "lower": 104.5, "mid": 105.0}},
+        trend={"direction": "up", "slope": 0.0, "slope_pips": 0.0, "window": 10, "method": "regression"},
     )
 
     event = signal_engine.evaluate(
@@ -83,10 +89,11 @@ def test_signal_engine_emits_and_respects_cooldown() -> None:
         timeframe="1m",
         timestamp=base_ts + timedelta(seconds=10),
         close=105.2,
-        sma=105.1,
-        rsi=60.0,
-        bb_upper=105.6,
-        bb_lower=104.6,
+        sma={"21": 105.1},
+        rsi={"14": 60.0},
+        rci={},
+        bb={"21_2.0": {"upper": 105.6, "lower": 104.6, "mid": 105.1}},
+        trend={"direction": "up", "slope": 0.0, "slope_pips": 0.0, "window": 10, "method": "regression"},
     )
     still_suppressed = signal_engine.evaluate(
         symbol="USD_JPY",

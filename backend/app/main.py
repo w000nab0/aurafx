@@ -28,13 +28,21 @@ indicator_store = IndicatorStore()
 indicator_config = settings.indicator_config
 indicator_engine = IndicatorEngine(
     store=indicator_store,
-    sma_period=int(indicator_config.get("sma_period", 20)),
-    rsi_period=int(indicator_config.get("rsi_period", 14)),
-    bb_period=int(indicator_config.get("bb_period", 20)),
-    bb_sigma=float(indicator_config.get("bb_sigma", 2.0)),
+    sma_periods=[int(x) for x in indicator_config.get("sma_periods", [5, 21])],
+    rsi_periods=[int(x) for x in indicator_config.get("rsi_periods", [14])],
+    rci_periods=[int(x) for x in indicator_config.get("rci_periods", [6, 9, 27])],
+    bb_period=int(indicator_config.get("bb_period", 21)),
+    bb_sigmas=[float(x) for x in indicator_config.get("bb_sigmas", [2.0])],
+    trend_window=int(indicator_config.get("trend_window", 10)),
+    trend_threshold_pips=float(indicator_config.get("trend_threshold_pips", 1.5)),
+    pip_size=float(settings.position_config.get("pip_size", 0.001)),
     max_rows=int(indicator_config.get("max_rows", 1000)),
 )
-signal_engine = SignalEngine(cooldown_seconds=settings.signal_cooldown_sec)
+signal_engine = SignalEngine(
+    cooldown_seconds=settings.signal_cooldown_sec,
+    bb_period=int(indicator_config.get("bb_period", 21)),
+    bb_sigma=float(indicator_config.get("signal_bb_sigma", indicator_config.get("bb_sigmas", [2.0])[0])),
+)
 position_config = settings.position_config
 position_manager = PositionManager(
     pip_size=float(position_config.get("pip_size", 0.001)),

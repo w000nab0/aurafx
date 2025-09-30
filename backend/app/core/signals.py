@@ -24,21 +24,26 @@ class SignalEvent:
             "price": self.price,
             "occurred_at": self.occurred_at.isoformat(),
         }
-        data.update({
-            "sma": self.indicators.sma,
-            "rsi": self.indicators.rsi,
-            "bb_upper": self.indicators.bb_upper,
-            "bb_lower": self.indicators.bb_lower,
-            "indicator_timestamp": self.indicators.timestamp.isoformat(),
-        })
+        data.update(
+            {
+                "indicator_timestamp": self.indicators.timestamp.isoformat(),
+                "sma": self.indicators.sma,
+                "rsi": self.indicators.rsi,
+                "rci": self.indicators.rci,
+                "bb": self.indicators.bb,
+                "trend": self.indicators.trend,
+            }
+        )
         return data
 
 
 class SignalEngine:
     """Evaluates tick data against indicator snapshots to emit trading signals."""
 
-    def __init__(self, cooldown_seconds: int = 30) -> None:
+    def __init__(self, cooldown_seconds: int = 30, bb_period: int = 21, bb_sigma: float = 2.0) -> None:
         self.cooldown_seconds = cooldown_seconds
+        self._bb_period = bb_period
+        self._bb_sigma = bb_sigma
         self._last_signal: Dict[Tuple[str, str, str], datetime] = {}
         self._last_indicator_timestamp: Dict[Tuple[str, str, str], datetime] = {}
 
@@ -51,13 +56,14 @@ class SignalEngine:
         indicator: IndicatorSnapshot,
         timestamp: datetime,
     ) -> Optional[SignalEvent]:
-        if indicator.bb_upper is None or indicator.bb_lower is None:
+        upper, lower = indicator.get_bb(self._bb_period, self._bb_sigma)
+        if upper is None or lower is None:
             return None
 
         direction: Optional[str] = None
-        if price >= indicator.bb_upper:
+        if price >= upper:
             direction = "SELL"
-        elif price <= indicator.bb_lower:
+        elif price <= lower:
             direction = "BUY"
 
         if direction is None:

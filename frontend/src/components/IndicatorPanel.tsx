@@ -15,25 +15,44 @@ export const IndicatorPanel = () => {
         <tr>
           <th style={header}>足</th>
           <th style={header}>終値</th>
-          <th style={header}>SMA</th>
-          <th style={header}>RSI</th>
-          <th style={header}>BB Upper</th>
-          <th style={header}>BB Lower</th>
+          <th style={header}>SMA5</th>
+          <th style={header}>SMA21</th>
+          <th style={header}>SMA21傾き</th>
+          <th style={header}>RSI14</th>
+          <th style={header}>RCI6/9/27</th>
+          <th style={header}>BB21(±2)</th>
+          <th style={header}>BB21(±3)</th>
           <th style={header}>時刻</th>
         </tr>
       </thead>
       <tbody>
-        {entries.map(([timeframe, data]) => (
-          <tr key={timeframe}>
-            <td style={cell}>{timeframe}</td>
-            <td style={cell}>{formatNumber(data.close)}</td>
-            <td style={cell}>{formatNumber(data.sma)}</td>
-            <td style={cell}>{formatNumber(data.rsi)}</td>
-            <td style={cell}>{formatNumber(data.bb_upper)}</td>
-            <td style={cell}>{formatNumber(data.bb_lower)}</td>
-            <td style={cell}>{String(data.timestamp ?? "-")}</td>
-          </tr>
-        ))}
+        {entries.map(([timeframe, raw]) => {
+          const data = raw as Record<string, any>;
+          const sma = (data.sma ?? {}) as Record<string, number>;
+          const rsi = (data.rsi ?? {}) as Record<string, number>;
+          const rci = (data.rci ?? {}) as Record<string, number>;
+          const bb = (data.bb ?? {}) as Record<string, Record<string, number>>;
+          const trend = (data.trend ?? {}) as Record<string, any>;
+          const bbSigma2 = bb["21_2"] ?? bb["21_2.0"] ?? {};
+          const bbSigma3 = bb["21_3"] ?? bb["21_3.0"] ?? {};
+          const slopePips = trend.slope_pips ?? trend.slopePips;
+          const trendDirRaw = trend.direction ?? "-";
+          const trendDir = typeof trendDirRaw === "string" ? trendDirRaw.toUpperCase() : "-";
+          return (
+            <tr key={timeframe}>
+              <td style={cell}>{timeframe}</td>
+              <td style={cell}>{formatNumber(data.close)}</td>
+              <td style={cell}>{formatNumber(sma["5"])} </td>
+              <td style={cell}>{formatNumber(sma["21"])} </td>
+              <td style={cell}>{`${trendDir} ${formatNumber(slopePips, 2)}`}</td>
+              <td style={cell}>{formatNumber(rsi["14"])}</td>
+              <td style={cell}>{`6:${formatNumber(rci["6"])} / 9:${formatNumber(rci["9"])} / 27:${formatNumber(rci["27"])}`}</td>
+              <td style={cell}>{`U:${formatNumber(bbSigma2.upper)} L:${formatNumber(bbSigma2.lower)}`}</td>
+              <td style={cell}>{`U:${formatNumber(bbSigma3.upper)} L:${formatNumber(bbSigma3.lower)}`}</td>
+              <td style={cell}>{String(data.timestamp ?? "-")}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -53,9 +72,9 @@ const cell: React.CSSProperties = {
   fontVariantNumeric: "tabular-nums",
 };
 
-function formatNumber(value: unknown): string {
+function formatNumber(value: unknown, digits = 3): string {
   if (value === null || value === undefined) return "-";
   const num = Number(value);
   if (Number.isNaN(num)) return String(value ?? "-");
-  return num.toFixed(3);
+  return num.toFixed(digits);
 }

@@ -20,22 +20,27 @@ export const SignalList = () => {
                 <th style={headerStyle}>足</th>
                 <th style={headerStyle}>方向</th>
                 <th style={headerStyle}>価格</th>
-                <th style={headerStyle}>SMA</th>
-                <th style={headerStyle}>RSI</th>
+                <th style={headerStyle}>SMA5/21</th>
+                <th style={headerStyle}>RSI14</th>
+                <th style={headerStyle}>トレンド</th>
               </tr>
             </thead>
             <tbody>
-              {signals.map((signal, idx) => (
-                <tr key={idx}>
-                  <td style={cellStyle}>{String(signal?.occurred_at ?? signal?.timestamp ?? "-")}</td>
-                  <td style={cellStyle}>{String(signal?.symbol ?? "-")}</td>
-                  <td style={cellStyle}>{String(signal?.timeframe ?? "-")}</td>
-                  <td style={{ ...cellStyle, fontWeight: 600 }}>{String(signal?.direction ?? "-")}</td>
-                  <td style={cellStyle}>{formatNumber(signal?.price)}</td>
-                  <td style={cellStyle}>{formatNumber(signal?.sma)}</td>
-                  <td style={cellStyle}>{formatNumber(signal?.rsi)}</td>
-                </tr>
-              ))}
+              {signals.map((signal, idx) => {
+                const rsi = (signal?.rsi ?? {}) as Record<string, unknown>;
+                return (
+                  <tr key={idx}>
+                    <td style={cellStyle}>{String(signal?.occurred_at ?? signal?.timestamp ?? "-")}</td>
+                    <td style={cellStyle}>{String(signal?.symbol ?? "-")}</td>
+                    <td style={cellStyle}>{String(signal?.timeframe ?? "-")}</td>
+                    <td style={{ ...cellStyle, fontWeight: 600 }}>{String(signal?.direction ?? "-")}</td>
+                    <td style={cellStyle}>{formatNumber(signal?.price)}</td>
+                    <td style={cellStyle}>{renderSignalSMA(signal)}</td>
+                    <td style={cellStyle}>{formatNumber(rsi["14"], 2)}</td>
+                    <td style={cellStyle}>{renderTrend(signal?.trend as Record<string, any> | undefined)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -59,9 +64,25 @@ const cellStyle: CSSProperties = {
   fontVariantNumeric: "tabular-nums"
 };
 
-function formatNumber(value: unknown): string {
+function formatNumber(value: unknown, digits = 3): string {
   if (value === null || value === undefined) return "-";
   const num = Number(value);
   if (Number.isNaN(num)) return String(value ?? "-");
-  return num.toFixed(3);
+  return num.toFixed(digits);
+}
+
+function renderSignalSMA(signal: Record<string, any> | undefined): string {
+  if (!signal) return "-";
+  const sma = (signal.sma ?? {}) as Record<string, unknown>;
+  const sma5 = formatNumber(sma["5"]);
+  const sma21 = formatNumber(sma["21"]);
+  return `5:${sma5} / 21:${sma21}`;
+}
+
+function renderTrend(trend: Record<string, any> | undefined): string {
+  if (!trend) return "-";
+  const direction = String(trend.direction ?? "-").toUpperCase();
+  const slope = trend.slope_pips ?? trend.slopePips;
+  const slopeText = slope === undefined || slope === null ? "-" : Number(slope).toFixed(2);
+  return `${direction} (${slopeText} pips)`;
 }
