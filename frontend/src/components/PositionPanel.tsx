@@ -4,9 +4,11 @@ import { useEffect } from "react";
 import { closePosition, fetchPositions, type PositionSnapshot } from "../services/api";
 import { useMarketStore } from "../hooks/useMarketStore";
 
+const EMPTY_POSITIONS: PositionSnapshot[] = [];
+
 export const PositionPanel = () => {
   const queryClient = useQueryClient();
-  const { data = [], isLoading } = useQuery<PositionSnapshot[], Error, PositionSnapshot[], ["positions"]>({
+  const { data, isLoading } = useQuery<PositionSnapshot[], Error, PositionSnapshot[], ["positions"]>({
     queryKey: ["positions"],
     queryFn: fetchPositions,
     refetchInterval: 5_000,
@@ -22,11 +24,15 @@ export const PositionPanel = () => {
 
   const setOpenPositions = useMarketStore((state) => state.setOpenPositions);
 
-  useEffect(() => {
-    setOpenPositions(data);
-  }, [data, setOpenPositions]);
+  const positionsData = data ?? EMPTY_POSITIONS;
 
-  const positions = (data.length > 0 ? data : Object.values(openPositions)) as Array<Record<string, any>>;
+  useEffect(() => {
+    setOpenPositions(positionsData);
+  }, [positionsData, setOpenPositions]);
+
+  const positions = (positionsData.length > 0
+    ? positionsData
+    : Object.values(openPositions)) as Array<Record<string, any>>;
 
   if (isLoading) {
     return <p style={{ opacity: 0.7 }}>ポジション読込み中...</p>;

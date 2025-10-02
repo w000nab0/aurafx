@@ -16,6 +16,7 @@ class Position:
     opened_at: datetime
     fee_rate: float
     open_fee: float
+    strategy: str
 
     def unrealized(self, price: float) -> float:
         sign = 1 if self.direction == "BUY" else -1
@@ -30,6 +31,7 @@ class PositionEvent:
     timestamp: datetime
     pnl: float
     fee_paid: float
+    pips: float
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -45,6 +47,8 @@ class PositionEvent:
             "timestamp": self.timestamp.isoformat(),
             "pnl": self.pnl,
             "fee_paid": self.fee_paid,
+            "pips": self.pips,
+            "strategy": self.position.strategy,
         }
 
 
@@ -57,21 +61,23 @@ class PositionManager:
         stop_loss_pips: float,
         take_profit_pips: float,
         fee_rate: float,
+        trading_active: bool = False,
     ) -> None:
         self._pip_size = pip_size
         self._lot_size = lot_size
         self._stop_loss_pips = stop_loss_pips
         self._take_profit_pips = take_profit_pips
         self._fee_rate = fee_rate
-        self._positions: Dict[str, Position] = {}
+        self._positions: Dict[tuple[str, str], Position] = {}
         self._last_price: Dict[str, float] = {}
+        self._trading_active = trading_active
 
     def get_positions(self) -> List[Position]:
         return list(self._positions.values())
 
     def serialize_positions(self) -> List[dict[str, object]]:
         data: List[dict[str, object]] = []
-        for symbol, position in self._positions.items():
+        for (symbol, strategy), position in self._positions.items():
             price = self.get_last_price(symbol)
             data.append(
                 {
@@ -86,17 +92,19 @@ class PositionManager:
                     "last_price": price,
                     "open_fee": position.open_fee,
                     "fee_rate": position.fee_rate,
+                    "strategy": strategy,
                 }
             )
         return data
 
-    def get_config(self) -> dict[str, float]:
+    def get_config(self) -> dict[str, float | bool]:
         return {
             "pip_size": self._pip_size,
             "lot_size": self._lot_size,
             "stop_loss_pips": self._stop_loss_pips,
             "take_profit_pips": self._take_profit_pips,
             "fee_rate": self._fee_rate,
+            "trading_active": self._trading_active,
         }
 
     def update_config(
@@ -107,6 +115,7 @@ class PositionManager:
         stop_loss_pips: Optional[float] = None,
         take_profit_pips: Optional[float] = None,
         fee_rate: Optional[float] = None,
+        trading_active: Optional[bool] = None,
     ) -> None:
         if pip_size is not None:
             self._pip_size = pip_size
@@ -118,63 +127,87 @@ class PositionManager:
             self._take_profit_pips = take_profit_pips
         if fee_rate is not None:
             self._fee_rate = fee_rate
+        if trading_active is not None:
+            self._trading_active = trading_active
 
-    def handle_signal(self, symbol: str, direction: str, price: float, timestamp: datetime) -> List[PositionEvent]:
-        existing = self._positions.get(symbol)
+    def handle_signal(self, symbol: str, direction: str, price: float, timestamp: datetime, *, strategy: str | None = None) -> List[PositionEvent]:
+        key = (symbol, strategy or "default")
+        existing = self._positions.get(key)
         self._last_price[symbol] = price
         events: List[PositionEvent] = []
+        if not self._trading_active:
+            return events
+
         if direction in {"BUY", "SELL"}:
             if existing and existing.direction == direction:
                 return events
             if existing:
-                close_event = self._close_position(symbol, price, timestamp, reason="REVERSE")
-                if close_event:
-                    events.append(close_event)
-            self._positions[symbol] = self._create_position(symbol, direction, price, timestamp)
+                return events
+            self._positions[key] = self._create_position(
+                symbol, direction, price, timestamp, strategy=strategy or "default"
+            )
             open_event = PositionEvent(
                 event_type="OPEN",
-                position=self._positions[symbol],
+                position=self._positions[key],
                 price=price,
                 timestamp=timestamp,
-                pnl=-self._positions[symbol].open_fee,
-                fee_paid=self._positions[symbol].open_fee,
+                pnl=-self._positions[key].open_fee,
+                fee_paid=self._positions[key].open_fee,
+                pips=0.0,
             )
             events.append(open_event)
         return events
 
     def evaluate_price(self, symbol: str, price: float, timestamp: datetime) -> Optional[PositionEvent]:
-        position = self._positions.get(symbol)
-        if not position:
-            return None
-        self._last_price[symbol] = price
-        if position.direction == "BUY":
-            if price <= position.stop_loss:
-                return self._close_position(symbol, price, timestamp, reason="STOP_LOSS")
-            if price >= position.take_profit:
-                return self._close_position(symbol, price, timestamp, reason="TAKE_PROFIT")
-        else:
-            if price >= position.stop_loss:
-                return self._close_position(symbol, price, timestamp, reason="STOP_LOSS")
-            if price <= position.take_profit:
-                return self._close_position(symbol, price, timestamp, reason="TAKE_PROFIT")
-        return None
+        triggered = None
+        for key, position in list(self._positions.items()):
+            sym_key, _ = key
+            if sym_key != symbol:
+                continue
+            self._last_price[symbol] = price
+            if position.direction == "BUY":
+                if price <= position.stop_loss:
+                    triggered = self._close_position_by_key(key, price, timestamp, reason="STOP_LOSS")
+                elif price >= position.take_profit:
+                    triggered = self._close_position_by_key(key, price, timestamp, reason="TAKE_PROFIT")
+            else:
+                if price >= position.stop_loss:
+                    triggered = self._close_position_by_key(key, price, timestamp, reason="STOP_LOSS")
+                elif price <= position.take_profit:
+                    triggered = self._close_position_by_key(key, price, timestamp, reason="TAKE_PROFIT")
+            if triggered:
+                break
+        return triggered
 
     def close_position(self, symbol: str, price: float, timestamp: datetime, reason: str = "MANUAL_CLOSE") -> Optional[PositionEvent]:
-        return self._close_position(symbol, price, timestamp, reason=reason)
+        for key, position in list(self._positions.items()):
+            sym_key, _ = key
+            if sym_key != symbol:
+                continue
+            return self._close_position_by_key(key, price, timestamp, reason=reason)
+        return None
 
     def get_last_price(self, symbol: str) -> float:
-        position = self._positions.get(symbol)
-        default = position.entry_price if position else 0.0
+        default = 0.0
+        for (sym_key, _), position in self._positions.items():
+            if sym_key == symbol:
+                default = position.entry_price
+                break
         return self._last_price.get(symbol, default)
 
-    def _close_position(self, symbol: str, price: float, timestamp: datetime, reason: str) -> Optional[PositionEvent]:
-        position = self._positions.pop(symbol, None)
+    def get_lot_size(self) -> float:
+        return self._lot_size
+
+    def _close_position_by_key(self, key: tuple[str, str], price: float, timestamp: datetime, reason: str) -> Optional[PositionEvent]:
+        position = self._positions.pop(key, None)
         if not position:
             return None
         pnl_before_fee = position.unrealized(price)
         close_fee = price * position.lot_size * position.fee_rate
         pnl = pnl_before_fee - close_fee
-        self._last_price[symbol] = price
+        direction_sign = 1 if position.direction == "BUY" else -1
+        pips = (price - position.entry_price) * direction_sign / self._pip_size
+        self._last_price[position.symbol] = price
         return PositionEvent(
             event_type=reason,
             position=position,
@@ -182,9 +215,18 @@ class PositionManager:
             timestamp=timestamp,
             pnl=pnl,
             fee_paid=close_fee,
+            pips=pips,
         )
 
-    def _create_position(self, symbol: str, direction: str, price: float, timestamp: datetime) -> Position:
+    def _create_position(
+        self,
+        symbol: str,
+        direction: str,
+        price: float,
+        timestamp: datetime,
+        *,
+        strategy: str,
+    ) -> Position:
         offset = self._pip_size
         stop_loss_price = price - self._stop_loss_pips * offset if direction == "BUY" else price + self._stop_loss_pips * offset
         take_profit_price = price + self._take_profit_pips * offset if direction == "BUY" else price - self._take_profit_pips * offset
@@ -200,4 +242,11 @@ class PositionManager:
             opened_at=timestamp,
             fee_rate=self._fee_rate,
             open_fee=open_fee,
+            strategy=strategy,
         )
+
+    def set_trading_active(self, active: bool) -> None:
+        self._trading_active = active
+
+    def is_trading_active(self) -> bool:
+        return self._trading_active

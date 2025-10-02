@@ -81,6 +81,7 @@ class IndicatorEngine:
         trend_threshold_pips: float,
         pip_size: float,
         max_rows: int = 1000,
+        trend_sma_period: int = 21,
     ) -> None:
         self._store = store
         self._sma_periods = sma_periods
@@ -92,7 +93,24 @@ class IndicatorEngine:
         self._trend_threshold_pips = trend_threshold_pips
         self._pip_size = pip_size
         self._max_rows = max_rows
+        self._trend_sma_period = trend_sma_period
         self._frames: Dict[Tuple[str, int], pd.DataFrame] = {}
+
+    def set_trend_sma_period(self, period: int) -> None:
+        if period <= 0:
+            raise ValueError("trend_sma_period must be positive")
+        self._trend_sma_period = period
+
+    def get_trend_sma_period(self) -> int:
+        return self._trend_sma_period
+
+    def set_trend_threshold(self, threshold: float) -> None:
+        if threshold <= 0:
+            raise ValueError("trend_threshold_pips must be positive")
+        self._trend_threshold_pips = threshold
+
+    def get_trend_threshold(self) -> float:
+        return self._trend_threshold_pips
 
     def handle_candle(self, symbol: str, timeframe: int, candle: 'Candle') -> IndicatorSnapshot | None:
         key = (symbol, timeframe)
@@ -166,6 +184,9 @@ class IndicatorEngine:
         self._store.set_snapshot(snapshot)
         return snapshot
 
+    def get_snapshot(self, symbol: str, timeframe: int | str) -> IndicatorSnapshot | None:
+        return self._store.get_snapshot(symbol, timeframe)
+
     @staticmethod
     def _last_valid(series: Optional[pd.Series]) -> Optional[float]:
         if series is None or series.empty:
@@ -188,22 +209,29 @@ class IndicatorEngine:
         direction = "flat"
         slope = float("nan")
         slope_pips = float("nan")
-        if len(close_series) >= self._trend_window and self._pip_size > 0:
-            recent = close_series.iloc[-self._trend_window :].to_numpy(dtype=float)
-            x = np.arange(len(recent))
-            coeffs = np.polyfit(x, recent, 1)
-            slope = float(coeffs[0])
-            slope_pips = slope / self._pip_size
-            if slope_pips > self._trend_threshold_pips:
-                direction = "up"
-            elif slope_pips < -self._trend_threshold_pips:
-                direction = "down"
+        ready = False
+        if len(close_series) >= self._trend_sma_period and self._pip_size > 0:
+            sma_series = close_series.rolling(self._trend_sma_period).mean()
+            sma_recent = sma_series.dropna()
+            if len(sma_recent) >= self._trend_window:
+                recent = sma_recent.iloc[-self._trend_window :].to_numpy(dtype=float)
+                if len(recent) >= 2:
+                    x = np.arange(len(recent))
+                    coeffs = np.polyfit(x, recent, 1)
+                    slope = float(coeffs[0])
+                    slope_pips = slope / self._pip_size
+                    if slope_pips > self._trend_threshold_pips:
+                        direction = "up"
+                    elif slope_pips < -self._trend_threshold_pips:
+                        direction = "down"
+                    ready = True
         return {
             "method": "regression",
             "window": self._trend_window,
             "slope": None if isnan(slope) else slope,
             "slope_pips": None if isnan(slope_pips) else slope_pips,
             "direction": direction,
+            "ready": ready,
         }
 
     def _compute_rci(self, series: pd.Series, length: int) -> Optional[float]:

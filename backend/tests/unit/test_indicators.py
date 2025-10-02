@@ -49,39 +49,53 @@ def test_indicator_engine_produces_snapshot() -> None:
 
 
 def test_signal_engine_emits_and_respects_cooldown() -> None:
-    signal_engine = SignalEngine(cooldown_seconds=30, bb_period=21, bb_sigma=2.0)
-    base_ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    store = IndicatorStore()
+    signal_engine = SignalEngine(
+        store=store,
+        pip_size=0.001,
+        cooldown_seconds=30,
+        bb_period=21,
+        bb_sigma=2.0,
+        strong_trend_slope_pips=0.5,
+    )
+    # Use a timestamp outside the default blackout windows (JST 12:00 on Jan 1).
+    base_ts = datetime(2024, 1, 1, 3, tzinfo=timezone.utc)
     indicator = IndicatorSnapshot(
         symbol="USD_JPY",
         timeframe="1m",
         timestamp=base_ts,
         close=105.0,
         sma={"21": 105.0},
-        rsi={"14": 55.0},
+        rsi={"14": 75.0},
         rci={},
         bb={"21_2.0": {"upper": 105.5, "lower": 104.5, "mid": 105.0}},
-        trend={"direction": "up", "slope": 0.0, "slope_pips": 0.0, "window": 10, "method": "regression"},
+        trend={"direction": "flat", "slope": 0.0, "slope_pips": 0.0, "window": 10, "method": "regression"},
     )
+    store.set_snapshot(indicator)
 
-    event = signal_engine.evaluate(
+    events = signal_engine.evaluate(
         symbol="USD_JPY",
         timeframe="1m",
+        timeframe_seconds=60,
         price=106.0,
         indicator=indicator,
         timestamp=base_ts + timedelta(seconds=1),
+        candles=[],
     )
-    assert event is not None
-    assert event.direction == "SELL"
+    assert len(events) == 1
+    assert events[0].direction == "SELL"
 
     # Same indicator timestamp -> suppressed
-    event_again = signal_engine.evaluate(
+    events_again = signal_engine.evaluate(
         symbol="USD_JPY",
         timeframe="1m",
+        timeframe_seconds=60,
         price=106.5,
         indicator=indicator,
         timestamp=base_ts + timedelta(seconds=2),
+        candles=[],
     )
-    assert event_again is None
+    assert events_again == []
 
     # New indicator timestamp but within cooldown -> suppressed
     new_indicator = IndicatorSnapshot(
@@ -90,27 +104,55 @@ def test_signal_engine_emits_and_respects_cooldown() -> None:
         timestamp=base_ts + timedelta(seconds=10),
         close=105.2,
         sma={"21": 105.1},
-        rsi={"14": 60.0},
+        rsi={"14": 72.0},
         rci={},
         bb={"21_2.0": {"upper": 105.6, "lower": 104.6, "mid": 105.1}},
-        trend={"direction": "up", "slope": 0.0, "slope_pips": 0.0, "window": 10, "method": "regression"},
+        trend={"direction": "flat", "slope": 0.0, "slope_pips": 0.0, "window": 10, "method": "regression"},
     )
+    store.set_snapshot(new_indicator)
     still_suppressed = signal_engine.evaluate(
         symbol="USD_JPY",
         timeframe="1m",
+        timeframe_seconds=60,
         price=106.0,
         indicator=new_indicator,
         timestamp=base_ts + timedelta(seconds=15),
+        candles=[],
     )
-    assert still_suppressed is None
+    assert still_suppressed == []
 
-    # After cooldown with new indicator timestamp -> allowed
-    allowed = signal_engine.evaluate(
+
+def test_signal_engine_skips_during_blackout() -> None:
+    store = IndicatorStore()
+    signal_engine = SignalEngine(
+        store=store,
+        pip_size=0.001,
+        cooldown_seconds=30,
+        bb_period=21,
+        bb_sigma=2.0,
+        strong_trend_slope_pips=0.5,
+    )
+    base_ts = datetime(2024, 1, 1, tzinfo=timezone.utc)  # 09:00 JST (within blackout)
+    indicator = IndicatorSnapshot(
         symbol="USD_JPY",
         timeframe="1m",
-        price=106.0,
-        indicator=new_indicator,
-        timestamp=base_ts + timedelta(seconds=40),
+        timestamp=base_ts,
+        close=105.0,
+        sma={"21": 105.0},
+        rsi={"14": 75.0},
+        rci={},
+        bb={"21_2.0": {"upper": 105.5, "lower": 104.5, "mid": 105.0}},
+        trend={"direction": "flat", "slope": 0.0, "slope_pips": 0.0, "window": 10, "method": "regression"},
     )
-    assert allowed is not None
-    assert allowed.direction == "SELL"
+
+    events = signal_engine.evaluate(
+        symbol="USD_JPY",
+        timeframe="1m",
+        timeframe_seconds=60,
+        price=106.0,
+        indicator=indicator,
+        timestamp=base_ts + timedelta(seconds=1),
+        candles=[],
+    )
+
+    assert events == []

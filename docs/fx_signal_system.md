@@ -2,7 +2,8 @@
 
 ## ゴール
 - GMOコイン（https://api.coin.z.com/docs/）のPublic WebSocketからFXティックを取得し、1分足・5分足の指標（SMA/RSI/ボリンジャーバンド）を更新。
-- ティックごとに逆張りロジックでシグナル判定。
+- ティックごとに複数の売買ロジック（逆張り・順張り）でシグナル判定。
+- GMOコイン Private API（REST）に接続する `GMOClient` と `LiveTradingController` を用意し、`.env` の `GMO_API_KEY` / `GMO_API_SECRET` を設定すれば市場成行注文を自動発注できる。`trading_active` が `true` のときのみ発注し、未設定の場合は従来通りシミュレーションのみ（LiveTradingController は無効）。
 - シグナル発生時だけPostgreSQLへ履歴保存し、Reactフロントでリアルタイム表示。
 
 ## 技術スタック
@@ -84,8 +85,17 @@ backend/
 - 線形回帰（Window=10本）でSMA21の傾きを算出し、1.5pipsを閾値に上昇/下降/横ばいを判定。
 - 結果は `IndicatorSnapshot` に格納し、WebSocketで `indicator` イベントとして配信。
 - **シグナル判定 + ポジション管理（core/signals.py / services/positions.py）**
-  - ティック受信ごとに最新スナップショットを参照し、BB±σタッチで BUY/SELL を判定。使用σは `INDICATOR_CONFIG.signal_bb_sigma` で切替可能。
+  - ティック受信ごとに最新スナップショットを参照し、以下の6ロジックを評価（クールダウン＋タイムフレーム別の重複抑制付き）。
+    1. **BB逆張り（1分）**: トレンドが横ばい/逆行時にBB±2σタッチとRSI閾値で逆張り。
+    2. **SMA21タッチ反発（1分）**: トレンド方向と一致し、足がSMA21へタッチして反発したら順張り。
+    3. **SMA21タッチ反発（5分）**: 5分足でも同様の反発を検知。
+    4. **高値・安値フェイクブレイク（1分）**: 1分/5分が横ばいで直近5本の高安をフェイクブレイクしたら逆張り。
+    5. **移動平均クロス順張り（1分）**: SMA5とSMA21のクロスをトレンド方向で追随。
+    6. **強トレンド押し目・戻り目（1分）**: 傾きが一定以上のとき、SMA5タッチで押し目/戻り目エントリー。
+  - 各ロジックごとに履歴を保持し、WebSocketとREST（`/api/trading/signals/history`）で取得可能。
   - `PositionManager` は Lot・pipサイズ・損切り/利確pips・手数料率（0.002%）を保持。ポジションオープン時にオープン手数料、クローズ時にクローズ手数料を差し引いた純損益を算出。
+- 取引設定（pipサイズ/ロット/損切り・利確/手数料率）は `TradingConfigStore`（JSON, `runtime/trading_config.json`）へ自動保存され、再起動後も引き継がれる。
+- 実取引のON/OFFをAPI経由で制御でき、停止中でも価格ストリームと指標更新は継続。UIの開始/停止ボタンは `/api/trading/config` に `trading_active` を送信して切り替える。
   - 損益計算: `PnL = (価格差 × lot × 方向) - (open_fee + close_fee)`。各イベントに `fee_paid` を付与し、履歴に反映。
 - **API層**
   - `/ws/prices`: ティック・足・指標・シグナル・ポジションイベントを push。
@@ -147,6 +157,26 @@ backend/
 - `IndicatorPanel` / `CandleTable` で最新1分・5分足のOHLCとインジケータ値を確認。
 - `SignalList` は逆張りシグナルの履歴を表示（SMA/RSI含む）。
 
+### 2025-09アップデート概要
+- **取引エンジン**
+  - Trend 判定は SMA21（ブラウザで変更可）のローリング値を線形回帰し、十分な本数が揃うまで `ready=False` として全ロジックのシグナル生成を抑止。
+  - 閾値 `trend_threshold_pips` も設定フォームから変更可能。
+  - 戦略ごとにポジションを独立保持し、決済シグナルには損益(pips)と元戦略名を付与。
+  - 新規注文はスプレッドが 0.5 以上の場合スキップ。決済注文は常に実行。
+  - 日本時間で 04:00〜09:15／21:20〜21:45／22:25〜23:10 のブラックアウト中は、新規発注のみ停止し、保有ポジションの決済注文は継続。
+  - ブラウザの取引設定フォームからブラックアウト時間帯を追加・削除でき、更新内容は `runtime/trading_config.json` に保存され再起動後も維持される。
+- **シグナル永続化**
+  - `core.stream.MarketStream` から発行されるシグナル／決済イベントは `services.signals_repository.SignalRepository` を介して PostgreSQL (`signal_events` テーブル) に保存するよう統合（2025-10）。
+  - シグナル履歴 API は引き続きメモリ保持 (`SignalEngine._histories`) を利用しており、DB からの読み出しは未実装。フロントエンド表示を切り替える際は注意すること。
+- **UI 構成**
+  - モニタリングとロジック分析の 2 ビューに分割。タブ切り替えで利用。
+  - 分析ビューではロジック別テーブル（時刻／方向／価格／決済／損益pips）のみ表示し、余計なフィルタやエクスポート機能は持たない。
+  - 取引設定フォームに `trend_sma_period` と `trend_threshold_pips` の入力欄を追加。
+
+- **API/永続化**
+  - `TradingConfig` に `trend_sma_period` と `trend_threshold_pips` を追加し、`runtime/trading_config.json` へ保存。
+  - `/api/trading/config` で双方を取得・更新できるよう拡張。
+
 ## デプロイと運用（Render）
 1. **FastAPIサービス**
    - Dockerfile例:
@@ -171,6 +201,12 @@ backend/
    - FastAPIログでエラー検知。
    - RenderのHealth Check（`/healthz`）を追加し、WebSocket接続中も監視。
    - 将来的にはOpenTelemetry or Sentry導入。
+
+## セキュリティと秘密情報管理
+- `.env` や `.env.dev` などの環境変数ファイルには API キー・DB パスワードなどの秘密情報を保持し、Git にコミットしない。必要に応じて `direnv` や Render の環境変数管理を利用する。
+- GMO API キーやデータベース資格情報は Docker Compose でも `env_file` で注入されるため、共有する際は Credential をマスクする。Pull Request やログに平文を出力しない。
+- 本番環境では TLS 接続と Firewall を前提に、PostgreSQL への接続元を限定する。監査目的で API 呼び出し（`services/gmo_client.py`）の失敗ログにはシークレットを含めない。
+- `.env` 内で値を更新したら `docs/fx_signal_system.md` の該当設定セクションも更新し、Secrets のライフサイクル（ローテーション手順・保管先）を明文化しておく。
 
 ## セキュリティ・信頼性
 - WebSocket再接続時の一時データ欠落を最小にするため、最後の受信タイムスタンプを保持し、ギャップが生じた場合はREST APIで補完（`/public/v1/ticker`）。

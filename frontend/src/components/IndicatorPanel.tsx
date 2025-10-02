@@ -27,6 +27,7 @@ export const IndicatorPanel = () => {
       </thead>
       <tbody>
         {entries.map(([timeframe, raw]) => {
+          const tfLabel = formatTimeframe(timeframe);
           const data = raw as Record<string, any>;
           const sma = (data.sma ?? {}) as Record<string, number>;
           const rsi = (data.rsi ?? {}) as Record<string, number>;
@@ -40,7 +41,7 @@ export const IndicatorPanel = () => {
           const trendDir = typeof trendDirRaw === "string" ? trendDirRaw.toUpperCase() : "-";
           return (
             <tr key={timeframe}>
-              <td style={cell}>{timeframe}</td>
+              <td style={cell}>{tfLabel}</td>
               <td style={cell}>{formatNumber(data.close)}</td>
               <td style={cell}>{formatNumber(sma["5"])} </td>
               <td style={cell}>{formatNumber(sma["21"])} </td>
@@ -77,4 +78,18 @@ function formatNumber(value: unknown, digits = 3): string {
   const num = Number(value);
   if (Number.isNaN(num)) return String(value ?? "-");
   return num.toFixed(digits);
+}
+
+function formatTimeframe(value: string): string {
+  if (value.endsWith("m")) {
+    return value;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return value;
+  }
+  if (numeric % 60 === 0) {
+    return `${numeric / 60}m`;
+  }
+  return `${numeric}s`;
 }

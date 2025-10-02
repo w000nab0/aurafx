@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     gmo_api_key: str | None = None
     gmo_api_secret: str | None = None
     websocket_endpoint: str = "wss://forex-api.coin.z.com/ws/public/v1"
+    gmo_private_base_url: str = "https://forex-api.coin.z.com"
     indicator_config: dict[str, Any] = {
         "sma_periods": [5, 21],
         "rsi_periods": [14],
@@ -37,6 +38,7 @@ class Settings(BaseSettings):
         "fee_rate": 0.00002,
     }
     signal_cooldown_sec: int = 30
+    trading_config_path: str | None = None
 
 
 @lru_cache

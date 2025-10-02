@@ -12,9 +12,11 @@ from websockets.client import WebSocketClientProtocol
 from ..services.broadcast import BroadcastHub
 from ..services.rate_limiter import FX_PUBLIC_WS_LIMIT
 from .candles import CandleAggregator, Candle
-from .indicators import IndicatorEngine, IndicatorStore
-from .signals import SignalEngine
+from .indicators import IndicatorEngine, IndicatorSnapshot, IndicatorStore
+from .signals import SignalEngine, SignalEvent
+from ..services.live_trading import LiveTradingController
 from ..services.positions import PositionManager
+from ..services.signals_repository import SignalRepository
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,8 @@ class MarketStream:
         indicator_store: IndicatorStore,
         signal_engine: SignalEngine,
         position_manager: PositionManager,
+        live_trader: LiveTradingController | None = None,
+        signal_repository: SignalRepository | None = None,
     ) -> None:
         self._endpoint = endpoint
         self._symbols = symbols
@@ -55,6 +59,8 @@ class MarketStream:
         self._indicator_store = indicator_store
         self._signal_engine = signal_engine
         self._position_manager = position_manager
+        self._live_trader = live_trader
+        self._signal_repository = signal_repository
         self._stop_event = asyncio.Event()
 
     def stop(self) -> None:
@@ -113,6 +119,7 @@ class MarketStream:
             await self._broadcast.publish({"type": "ticker", "data": data})
 
             price = self._extract_price(data)
+            spread = self._extract_spread(data)
             timestamp = _parse_timestamp(data["timestamp"])
             volume = float(data.get("volume", 0.0))
 
@@ -124,6 +131,27 @@ class MarketStream:
                         "data": position_event.as_dict(),
                     }
                 )
+                close_snapshot = self._indicator_store.get_snapshot(symbol, 60)
+                if close_snapshot is None:
+                    close_snapshot = self._fallback_snapshot(symbol, 60, price, timestamp)
+                close_signal = self._signal_engine.record_close_event(
+                    symbol=symbol,
+                    timeframe=_format_timeframe(60),
+                    price=price,
+                    timestamp=timestamp,
+                    indicator=close_snapshot,
+                    direction=position_event.position.direction,
+                    pips=position_event.pips,
+                    pnl=position_event.pnl,
+                    strategy_key=position_event.position.strategy,
+                )
+                await self._broadcast.publish({"type": "signal", "data": close_signal.as_dict()})
+                await self._persist_signals([close_signal])
+                if self._live_trader is not None:
+                    try:
+                        await self._live_trader.handle_position_event(position_event)
+                    except Exception:
+                        logger.exception("Live trading close submission failed")
 
             closed = self._aggregator.add_tick(symbol, price=price, volume=volume, ts=timestamp)
             for closed_symbol, timeframe, candle in closed:
@@ -146,19 +174,68 @@ class MarketStream:
                 snapshot = self._indicator_store.get_snapshot(symbol, timeframe)
                 if snapshot is None:
                     continue
-                event = self._signal_engine.evaluate(
+                timeframe_label = _format_timeframe(timeframe)
+                candles = self._aggregator.get_candles(symbol, timeframe)
+                events = self._signal_engine.evaluate(
                     symbol=symbol,
-                    timeframe=_format_timeframe(timeframe),
+                    timeframe=timeframe_label,
+                    timeframe_seconds=timeframe,
                     price=price,
                     indicator=snapshot,
                     timestamp=timestamp,
+                    candles=candles,
                 )
-                if event is not None:
-                    await self._broadcast.publish({"type": "signal", "data": event.as_dict()})
+                for event in events:
+                    pos_events = []
                     if event.direction in {"BUY", "SELL"}:
-                        pos_events = self._position_manager.handle_signal(symbol, event.direction, price, timestamp)
-                        for pos_event in pos_events:
-                            await self._broadcast.publish({"type": "position", "data": pos_event.as_dict()})
+                        pos_events = self._position_manager.handle_signal(
+                            symbol,
+                            event.direction,
+                            price,
+                            timestamp,
+                            strategy=event.strategy.value,
+                        )
+                    event.trade_action = self._classify_trade_action(pos_events)
+                    for pos_event in pos_events:
+                        if pos_event.event_type != "OPEN":
+                            close_snapshot = self._indicator_store.get_snapshot(symbol, timeframe)
+                            if close_snapshot is None:
+                                close_snapshot = self._fallback_snapshot(symbol, timeframe, price, timestamp)
+                            close_signal = self._signal_engine.record_close_event(
+                                symbol=symbol,
+                                timeframe=timeframe_label,
+                                price=pos_event.price,
+                                timestamp=pos_event.timestamp,
+                                indicator=close_snapshot,
+                                direction=pos_event.position.direction,
+                                pips=pos_event.pips,
+                                pnl=pos_event.pnl,
+                                strategy_key=pos_event.position.strategy,
+                            )
+                            await self._broadcast.publish({"type": "signal", "data": close_signal.as_dict()})
+                            await self._persist_signals([close_signal])
+                            if self._live_trader is not None:
+                                try:
+                                    await self._live_trader.handle_position_event(pos_event)
+                                except Exception:
+                                    logger.exception("Live trading close submission failed")
+                    if self._live_trader is not None:
+                        try:
+                            await self._live_trader.handle_signal(event, price, spread)
+                        except Exception:
+                            logger.exception("Live trading submission failed")
+                    await self._broadcast.publish({"type": "signal", "data": event.as_dict()})
+                    for pos_event in pos_events:
+                        await self._broadcast.publish({"type": "position", "data": pos_event.as_dict()})
+                await self._persist_signals(events)
+
+    async def _persist_signals(self, events: Sequence[SignalEvent]) -> None:
+        if not events or self._signal_repository is None:
+            return
+        try:
+            await self._signal_repository.add_events(events)
+        except Exception:  # pragma: no cover - defensive logging
+            logger.exception("Failed to persist signal events")
 
     @staticmethod
     def _extract_price(payload: dict) -> float:
@@ -193,3 +270,49 @@ class MarketStream:
             "timeframe": _format_timeframe(timeframe),
         })
         return payload
+
+    @staticmethod
+    def _classify_trade_action(pos_events: Sequence) -> str:
+        if not pos_events:
+            return "NONE"
+        has_open = any(getattr(evt, "event_type", "") == "OPEN" for evt in pos_events)
+        has_close = any(
+            getattr(evt, "event_type", "")
+            in {"REVERSE", "TAKE_PROFIT", "STOP_LOSS", "MANUAL_CLOSE"}
+            for evt in pos_events
+        )
+        if has_open and has_close:
+            return "REVERSE"
+        if has_open:
+            return "OPEN"
+        if has_close:
+            return "CLOSE"
+        return "NONE"
+
+    @staticmethod
+    def _fallback_snapshot(symbol: str, timeframe: int, price: float, timestamp: datetime) -> IndicatorSnapshot:
+        timeframe_label = _format_timeframe(timeframe)
+        return IndicatorSnapshot(
+            symbol=symbol,
+            timeframe=timeframe_label,
+            timestamp=timestamp,
+            close=price,
+            sma={},
+            rsi={},
+            rci={},
+            bb={},
+            trend={},
+        )
+
+    @staticmethod
+    def _extract_spread(payload: dict) -> float | None:
+        bid = payload.get("bid")
+        ask = payload.get("ask")
+        try:
+            if bid is None or ask is None:
+                return None
+            bid_f = float(bid)
+            ask_f = float(ask)
+            return ask_f - bid_f
+        except (TypeError, ValueError):
+            return None

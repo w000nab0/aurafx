@@ -7,6 +7,8 @@ export type IndicatorPayload = Record<string, unknown> & { timeframe?: string };
 export type PositionEventPayload = Record<string, unknown> & { type?: string; symbol?: string };
 export type PositionSnapshotPayload = Record<string, unknown> & { symbol?: string };
 
+type StrategyHistoryMap = Record<string, { label: string; events: SignalPayload[] }>;
+
 type Payload =
   | { type: "ticker"; data: TickerPayload }
   | { type: "signal"; data: SignalPayload }
@@ -20,10 +22,13 @@ type MarketState = {
   candles: Record<string, CandlePayload>;
   indicators: Record<string, IndicatorPayload>;
   signals: SignalPayload[];
+  strategyHistory: StrategyHistoryMap;
   positionEvents: PositionEventPayload[];
   openPositions: Record<string, PositionSnapshotPayload>;
   connect: () => void;
+  disconnect: () => void;
   setOpenPositions: (positions: PositionSnapshotPayload[]) => void;
+  setStrategyHistory: (history: StrategyHistoryMap) => void;
 };
 
 const WS_ENDPOINT = `${
@@ -35,6 +40,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   candles: {},
   indicators: {},
   signals: [],
+  strategyHistory: {},
   positionEvents: [],
   openPositions: {},
   setOpenPositions: (positions) =>
@@ -46,16 +52,60 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         return acc;
       }, {}),
     })),
+  setStrategyHistory: (history) => set(() => ({ strategyHistory: history })),
   connect: () => {
-    if (get().connected) {
+    const socket = currentSocket;
+    if (socket && socket.readyState === WebSocket.OPEN) {
       return;
+    }
+    shouldReconnect = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = undefined;
+    }
+    if (socket) {
+      socket.onopen = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      socket.onmessage = null;
+      try {
+        socket.close(1000, "Reconnecting");
+      } catch (error) {
+        console.error("Failed to close websocket before reconnect", error);
+      }
     }
 
     const ws = new WebSocket(WS_ENDPOINT.replace(/^http/, "ws"));
+    currentSocket = ws;
+    set({ connected: false });
 
-    ws.onopen = () => set({ connected: true });
-    ws.onclose = () => set({ connected: false });
-    ws.onerror = () => set({ connected: false });
+    ws.onopen = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
+      }
+      set({ connected: true });
+    };
+    ws.onclose = () => {
+      if (currentSocket === ws) {
+        currentSocket = null;
+      }
+      set({ connected: false });
+      if (shouldReconnect) {
+        scheduleReconnect();
+      }
+    };
+    ws.onerror = () => {
+      set({ connected: false });
+      if (shouldReconnect) {
+        scheduleReconnect();
+      }
+      try {
+        ws.close();
+      } catch (error) {
+        console.error("Failed to close websocket after error", error);
+      }
+    };
 
     ws.onmessage = (event) => {
       try {
@@ -79,9 +129,19 @@ export const useMarketStore = create<MarketState>((set, get) => ({
             };
           }
           if (payload.type === "signal") {
+            const strategyKey = String(payload.data.strategy ?? "unknown");
+            const label = String(payload.data.strategy_name ?? payload.data.strategy ?? strategyKey);
+            const current = state.strategyHistory[strategyKey]?.events ?? [];
             return {
               ...state,
               signals: [payload.data, ...state.signals].slice(0, 100),
+              strategyHistory: {
+                ...state.strategyHistory,
+                [strategyKey]: {
+                  label,
+                  events: [payload.data, ...current].slice(0, 100),
+                },
+              },
             };
           }
           if (payload.type === "position") {
@@ -106,5 +166,40 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         console.error("Failed to parse WS payload", error);
       }
     };
+  },
+  disconnect: () => {
+    shouldReconnect = false;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = undefined;
+    }
+    const ws = currentSocket;
+    currentSocket = null;
+    if (ws) {
+      ws.onopen = null;
+      ws.onclose = null;
+      ws.onerror = null;
+      ws.onmessage = null;
+      try {
+        ws.close(1000, "Manual disconnect");
+      } catch (error) {
+        console.error("Failed to close websocket during manual disconnect", error);
+      }
+    }
+    set({ connected: false });
   }
 }));
+
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+let shouldReconnect = true;
+let currentSocket: WebSocket | null = null;
+
+function scheduleReconnect() {
+  if (reconnectTimer || !shouldReconnect) {
+    return;
+  }
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = undefined;
+    useMarketStore.getState().connect();
+  }, 3000);
+}
