@@ -14,6 +14,7 @@ export type TradingConfig = {
   trading_active: boolean;
   trend_sma_period: number;
   trend_threshold_pips: number;
+  atr_threshold_pips: number;
   blackout_windows: BlackoutWindow[];
   blackout_active: boolean;
 };

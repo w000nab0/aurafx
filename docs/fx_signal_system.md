@@ -91,7 +91,7 @@ backend/
     3. **SMA21タッチ反発（5分）**: 5分足でも同様の反発を検知。
     4. **高値・安値フェイクブレイク（1分）**: 1分/5分が横ばいで直近5本の高安をフェイクブレイクしたら逆張り。
     5. **移動平均クロス順張り（1分）**: SMA5とSMA21のクロスをトレンド方向で追随。
-    6. **強トレンド押し目・戻り目（1分）**: 傾きが一定以上のとき、SMA5タッチで押し目/戻り目エントリー。
+    6. **トレンド押し目・戻り目（1分）**: 傾きが一定以上のとき、SMA5タッチで押し目/戻り目エントリー。
   - 各ロジックごとに履歴を保持し、WebSocketとREST（`/api/trading/signals/history`）で取得可能。
   - `PositionManager` は Lot・pipサイズ・損切り/利確pips・手数料率（0.002%）を保持。ポジションオープン時にオープン手数料、クローズ時にクローズ手数料を差し引いた純損益を算出。
 - 取引設定（pipサイズ/ロット/損切り・利確/手数料率）は `TradingConfigStore`（JSON, `runtime/trading_config.json`）へ自動保存され、再起動後も引き継がれる。
@@ -149,18 +149,22 @@ backend/
 
 ### 実装済みUI
 - 価格・指標・ポジションをカード/テーブルで可視化。チャート表示は無し。
-- `TradingConfigForm` から Lot数/損切りpips/利確pips を操作可能（pipサイズと手数料率は読み取り専用）。
+- **3つのタブビュー**: モニタリング／ロジック分析／パフォーマンス分析
+  - **モニタリング**: リアルタイムの価格・ポジション・インジケータを表示
+  - **ロジック分析**: 戦略別のシグナル履歴テーブル（時刻・方向・価格・決済・損益pips）
+  - **パフォーマンス分析**: 戦略別の統計サマリー（勝率・総損益・平均損益・最大利益/損失）。デフォルト期間は当日07:00 JST〜翌朝05:00 JST
+- `TradingConfigForm` から Lot数/損切りpips/利確pips/ATRしきい値 を操作可能（pipサイズと手数料率は読み取り専用）。
 - `PositionPanel` で保有ポジションの評価損益・手数料を確認、手動クローズボタンあり。
-- `IndicatorPanel` で SMA5/21・RSI14・RCI6/9/27・BB21±2/±3・トレンド（傾きpips）を表示。
+- `IndicatorPanel` で SMA5/21・RSI14・ATR14・RCI6/9/27・BB21±2/±3・トレンド（傾きpips）を表示。
 - `SignalList` にシグナル時点の SMA/RSI とトレンド判定を表示。
-- `PositionPanel` で保有ポジションの評価損益と手動クローズボタンを表示（API経由でクローズすると WebSocket にも反映）。
 - `IndicatorPanel` / `CandleTable` で最新1分・5分足のOHLCとインジケータ値を確認。
-- `SignalList` は逆張りシグナルの履歴を表示（SMA/RSI含む）。
+- `PerformancePanel` で期間指定フィルタを使い、戦略ごとの総トレード数・勝率・総損益・総Pips・平均損益・最大利益/損失を一覧表示。初期表示は当日07:00 JST〜翌朝05:00 JSTの統計。リセットボタンでデフォルト期間に戻る。
 
 ### 2025-09アップデート概要
 - **取引エンジン**
   - Trend 判定は SMA21（ブラウザで変更可）のローリング値を線形回帰し、十分な本数が揃うまで `ready=False` として全ロジックのシグナル生成を抑止。
   - 閾値 `trend_threshold_pips` も設定フォームから変更可能。
+  - **ATRフィルタ**: 1分足のATR(14)を計算し、`atr_threshold_pips` 未満の場合は全ロジックのシグナル生成を抑止。設定フォームから閾値を変更可能（デフォルト2.0pips）。
   - 戦略ごとにポジションを独立保持し、決済シグナルには損益(pips)と元戦略名を付与。
   - 新規注文はスプレッドが 0.5 以上の場合スキップ。決済注文は常に実行。
   - 日本時間で 04:00〜09:15／21:20〜21:45／22:25〜23:10 のブラックアウト中は、新規発注のみ停止し、保有ポジションの決済注文は継続。
@@ -168,14 +172,18 @@ backend/
 - **シグナル永続化**
   - `core.stream.MarketStream` から発行されるシグナル／決済イベントは `services.signals_repository.SignalRepository` を介して PostgreSQL (`signal_events` テーブル) に保存するよう統合（2025-10）。
   - シグナル履歴 API は引き続きメモリ保持 (`SignalEngine._histories`) を利用しており、DB からの読み出しは未実装。フロントエンド表示を切り替える際は注意すること。
+- **実約定との整合性**
+  - `services.execution_reconciler.ExecutionReconciler` が `latestExecutions` を周期的に取得し、`order_events` のステータスを更新。一定回数失敗した決済注文は自動的に再投入される。
+  - 各注文状態は WebSocket の `order` イベントで配信され、フロントの注文ステータスパネルに反映される。
 - **UI 構成**
   - モニタリングとロジック分析の 2 ビューに分割。タブ切り替えで利用。
   - 分析ビューではロジック別テーブル（時刻／方向／価格／決済／損益pips）のみ表示し、余計なフィルタやエクスポート機能は持たない。
   - 取引設定フォームに `trend_sma_period` と `trend_threshold_pips` の入力欄を追加。
 
 - **API/永続化**
-  - `TradingConfig` に `trend_sma_period` と `trend_threshold_pips` を追加し、`runtime/trading_config.json` へ保存。
-  - `/api/trading/config` で双方を取得・更新できるよう拡張。
+  - `TradingConfig` に `trend_sma_period`、`trend_threshold_pips`、`atr_threshold_pips` を追加し、`runtime/trading_config.json` へ保存。
+  - `/api/trading/config` で全設定を取得・更新できるよう拡張。
+  - `/api/trading/signals/summary` エンドポイントを追加し、戦略別のパフォーマンス統計（勝率・総損益・平均損益・最大利益/損失など）を取得可能。クエリパラメータ `from_date`、`to_date`、`strategy` で期間・戦略フィルタリングに対応。
 
 ## デプロイと運用（Render）
 1. **FastAPIサービス**

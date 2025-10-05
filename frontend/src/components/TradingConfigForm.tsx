@@ -34,6 +34,7 @@ export const TradingConfigForm = () => {
     take_profit_pips: data?.take_profit_pips ?? 40,
     trend_sma_period: data?.trend_sma_period ?? 21,
     trend_threshold_pips: data?.trend_threshold_pips ?? 1.5,
+    atr_threshold_pips: data?.atr_threshold_pips ?? 0.0,
   });
   const [blackoutWindows, setBlackoutWindows] = useState<BlackoutWindow[]>(
     data?.blackout_windows ?? []
@@ -52,6 +53,7 @@ export const TradingConfigForm = () => {
         take_profit_pips: data.take_profit_pips,
         trend_sma_period: data.trend_sma_period,
         trend_threshold_pips: data.trend_threshold_pips,
+        atr_threshold_pips: data.atr_threshold_pips,
       });
       setBlackoutWindows(data.blackout_windows);
     }
@@ -71,6 +73,7 @@ export const TradingConfigForm = () => {
       | "take_profit_pips"
       | "trend_sma_period"
       | "trend_threshold_pips"
+      | "atr_threshold_pips"
   ) =>
     (event: React.ChangeEvent<HTMLInputElement>) => {
       setForm((prev) => ({ ...prev, [key]: Number(event.target.value) }));
@@ -185,6 +188,17 @@ export const TradingConfigForm = () => {
           step={0.1}
           value={form.trend_threshold_pips}
           onChange={handleChange("trend_threshold_pips")}
+          style={input}
+        />
+      </div>
+      <div style={row}>
+        <label style={label}>ATRしきい値 (pips)</label>
+        <input
+          type="number"
+          min={0}
+          step={0.1}
+          value={form.atr_threshold_pips}
+          onChange={handleChange("atr_threshold_pips")}
           style={input}
         />
       </div>

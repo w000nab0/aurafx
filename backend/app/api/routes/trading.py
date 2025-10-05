@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...core.blackout import (
     is_blackout,
@@ -42,10 +43,12 @@ router = APIRouter(prefix="/api/trading", tags=["trading"])
 async def get_trading_config(
     manager: PositionManager = Depends(get_position_manager),
     indicator_engine = Depends(get_indicator_engine),
+    signal_engine: SignalEngine = Depends(get_signal_engine),
 ) -> TradingConfig:
     config = manager.get_config()
     config["trend_sma_period"] = indicator_engine.get_trend_sma_period()
     config["trend_threshold_pips"] = indicator_engine.get_trend_threshold()
+    config["atr_threshold_pips"] = signal_engine.get_atr_threshold()
     config["blackout_windows"] = serialize_blackout_windows()
     config["blackout_active"] = bool(is_blackout())
     return TradingConfig(**config)
@@ -57,6 +60,7 @@ async def update_trading_config(
     manager: PositionManager = Depends(get_position_manager),
     store = Depends(get_trading_config_store),
     indicator_engine = Depends(get_indicator_engine),
+    signal_engine: SignalEngine = Depends(get_signal_engine),
 ) -> TradingConfig:
     manager.update_config(
         pip_size=payload.pip_size,
@@ -70,6 +74,8 @@ async def update_trading_config(
         indicator_engine.set_trend_sma_period(payload.trend_sma_period)
     if payload.trend_threshold_pips is not None:
         indicator_engine.set_trend_threshold(payload.trend_threshold_pips)
+    if payload.atr_threshold_pips is not None:
+        signal_engine.set_atr_threshold(payload.atr_threshold_pips)
     if payload.blackout_windows is not None:
         try:
             parsed = parse_blackout_windows([bw.model_dump() for bw in payload.blackout_windows])
@@ -79,6 +85,7 @@ async def update_trading_config(
     config = manager.get_config()
     config["trend_sma_period"] = indicator_engine.get_trend_sma_period()
     config["trend_threshold_pips"] = indicator_engine.get_trend_threshold()
+    config["atr_threshold_pips"] = signal_engine.get_atr_threshold()
     config["blackout_windows"] = serialize_blackout_windows()
     config["blackout_active"] = bool(is_blackout())
     config_model = TradingConfig(**config)
@@ -93,6 +100,7 @@ async def update_trading_config(
             trading_active=config_model.trading_active,
             trend_sma_period=config_model.trend_sma_period,
             trend_threshold_pips=config_model.trend_threshold_pips,
+            atr_threshold_pips=config_model.atr_threshold_pips,
             blackout_windows=blackout_payload,
         )
     )
@@ -170,6 +178,39 @@ async def get_signal_history(engine: SignalEngine = Depends(get_signal_engine)) 
     return response
 
 
+@router.get("/signals/summary")
+async def get_signal_summary(
+    from_date: Optional[str] = Query(None, description="Start date (ISO format)"),
+    to_date: Optional[str] = Query(None, description="End date (ISO format)"),
+    strategy: Optional[str] = Query(None, description="Strategy filter"),
+    engine: SignalEngine = Depends(get_signal_engine),
+) -> dict[str, list[dict[str, object]]]:
+    from_dt: Optional[datetime] = None
+    to_dt: Optional[datetime] = None
+
+    if from_date:
+        try:
+            from_dt = datetime.fromisoformat(from_date.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid from_date format: {exc}")
+
+    if to_date:
+        try:
+            to_dt = datetime.fromisoformat(to_date.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid to_date format: {exc}")
+
+    strategy_enum: Optional[Strategy] = None
+    if strategy:
+        try:
+            strategy_enum = Strategy(strategy)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid strategy: {exc}")
+
+    summary = engine.get_summary(strategy=strategy_enum, from_date=from_dt, to_date=to_dt)
+    return {"strategies": list(summary.values())}
+
+
 def _infer_timeframe(strategy_key: str | None) -> str:
     if isinstance(strategy_key, str) and strategy_key.endswith("_5m"):
         return "5m"
@@ -206,4 +247,5 @@ def _fallback_snapshot(
         rci={},
         bb={},
         trend={"direction": "flat", "ready": False},
+        atr={},
     )

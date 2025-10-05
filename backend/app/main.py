@@ -23,6 +23,8 @@ from .services.gmo_client import GMOClient
 from .services.live_trading import LiveTradingController
 from .services.config_store import TradingConfigStore
 from .services.signals_repository import SignalRepository
+from .services.order_repository import OrderRepository
+from .services.execution_reconciler import ExecutionReconciler
 from .services.order_dispatcher import GMOOrderDispatcher
 from . import deps
 from .api.routes import trading
@@ -39,9 +41,12 @@ config_store_path = settings.trading_config_path or "runtime/trading_config.json
 trading_config_store = TradingConfigStore(Path(config_store_path))
 session_factory = get_session_factory()
 signal_repository = SignalRepository(session_factory)
+order_repository = OrderRepository(session_factory)
 order_dispatcher: GMOOrderDispatcher | None = None
+execution_reconciler: ExecutionReconciler | None = None
 
 loaded_config = trading_config_store.load()
+atr_threshold_pips = 0.0
 if loaded_config is not None:
     position_config = {
         **position_config,
@@ -56,6 +61,7 @@ if loaded_config is not None:
         "trend_sma_period": loaded_config.trend_sma_period,
         "trend_threshold_pips": loaded_config.trend_threshold_pips,
     }
+    atr_threshold_pips = loaded_config.atr_threshold_pips
     try:
         blackout_windows = parse_blackout_windows(loaded_config.blackout_windows or [])
         set_blackout_windows(blackout_windows)
@@ -85,6 +91,7 @@ signal_engine = SignalEngine(
     bb_period=int(indicator_config.get("bb_period", 21)),
     bb_sigma=signal_bb_sigma,
     strong_trend_slope_pips=float(indicator_config.get("strong_trend_slope_pips", 3.0)),
+    atr_threshold_pips=atr_threshold_pips,
 )
 trading_active_default = loaded_config.trading_active if loaded_config is not None else False
 
@@ -110,6 +117,14 @@ if settings.gmo_api_key and settings.gmo_api_secret:
         client=gmo_client,
         position_manager=position_manager,
         order_dispatcher=order_dispatcher,
+        order_repository=order_repository,
+        broadcaster=broadcast_hub,
+    )
+    execution_reconciler = ExecutionReconciler(
+        client=gmo_client,
+        order_repository=order_repository,
+        live_trader=live_trader,
+        position_manager=position_manager,
     )
 market_stream = MarketStream(
     endpoint=settings.websocket_endpoint,
@@ -132,6 +147,7 @@ deps.live_trader = live_trader
 deps.indicator_engine = indicator_engine
 deps.signal_repository = signal_repository
 deps.order_dispatcher = order_dispatcher
+deps.order_repository = order_repository
 
 
 @asynccontextmanager
@@ -140,6 +156,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover - s
     await init_database()
     if order_dispatcher is not None:
         await order_dispatcher.start()
+    if execution_reconciler is not None:
+        await execution_reconciler.start()
     stream_task = asyncio.create_task(market_stream.run(), name="market-stream")
     try:
         yield
@@ -153,6 +171,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover - s
             await gmo_client.close()
         if order_dispatcher is not None:
             await order_dispatcher.stop()
+        if execution_reconciler is not None:
+            await execution_reconciler.stop()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

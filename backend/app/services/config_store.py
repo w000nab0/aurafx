@@ -21,6 +21,7 @@ class TradingConfigData:
     trading_active: bool = False
     trend_sma_period: int = 21
     trend_threshold_pips: float = 1.5
+    atr_threshold_pips: float = 2.0
     blackout_windows: list[dict[str, str]] | None = None
 
 
@@ -37,6 +38,7 @@ class TradingConfigStore:
             payload.setdefault("trading_active", False)
             payload.setdefault("trend_sma_period", 21)
             payload.setdefault("trend_threshold_pips", 1.5)
+            payload.setdefault("atr_threshold_pips", 2.0)
             payload.setdefault("blackout_windows", serialize_blackout_windows())
             return TradingConfigData(**payload)
         except FileNotFoundError:

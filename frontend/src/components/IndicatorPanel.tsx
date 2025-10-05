@@ -19,6 +19,7 @@ export const IndicatorPanel = () => {
           <th style={header}>SMA21</th>
           <th style={header}>SMA21傾き</th>
           <th style={header}>RSI14</th>
+          <th style={header}>ATR14</th>
           <th style={header}>RCI6/9/27</th>
           <th style={header}>BB21(±2)</th>
           <th style={header}>BB21(±3)</th>
@@ -31,6 +32,7 @@ export const IndicatorPanel = () => {
           const data = raw as Record<string, any>;
           const sma = (data.sma ?? {}) as Record<string, number>;
           const rsi = (data.rsi ?? {}) as Record<string, number>;
+          const atr = (data.atr ?? {}) as Record<string, number>;
           const rci = (data.rci ?? {}) as Record<string, number>;
           const bb = (data.bb ?? {}) as Record<string, Record<string, number>>;
           const trend = (data.trend ?? {}) as Record<string, any>;
@@ -47,6 +49,7 @@ export const IndicatorPanel = () => {
               <td style={cell}>{formatNumber(sma["21"])} </td>
               <td style={cell}>{`${trendDir} ${formatNumber(slopePips, 2)}`}</td>
               <td style={cell}>{formatNumber(rsi["14"])}</td>
+              <td style={cell}>{formatNumber(atr["14"])}</td>
               <td style={cell}>{`6:${formatNumber(rci["6"])} / 9:${formatNumber(rci["9"])} / 27:${formatNumber(rci["27"])}`}</td>
               <td style={cell}>{`U:${formatNumber(bbSigma2.upper)} L:${formatNumber(bbSigma2.lower)}`}</td>
               <td style={cell}>{`U:${formatNumber(bbSigma3.upper)} L:${formatNumber(bbSigma3.lower)}`}</td>

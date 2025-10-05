@@ -20,6 +20,7 @@ class TradingConfig(BaseModel):
     trading_active: bool = Field(...)
     trend_sma_period: int = Field(..., gt=0)
     trend_threshold_pips: float = Field(..., gt=0)
+    atr_threshold_pips: float = Field(..., gt=0)
     blackout_windows: list[BlackoutWindow]
     blackout_active: bool
 
@@ -33,6 +34,7 @@ class TradingConfigUpdate(BaseModel):
     trading_active: Optional[bool] = None
     trend_sma_period: Optional[int] = Field(None, gt=0)
     trend_threshold_pips: Optional[float] = Field(None, gt=0)
+    atr_threshold_pips: Optional[float] = Field(None, gt=0)
     blackout_windows: Optional[list[BlackoutWindow]] = None
 
 

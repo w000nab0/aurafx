@@ -27,7 +27,7 @@ STRATEGY_LABELS: dict[Strategy, str] = {
     Strategy.MA_TOUCH_BOUNCE_5M: "SMA21タッチ反発 (5分)",
     Strategy.FAKE_BREAKOUT_1M: "高値・安値フェイクブレイク (1分)",
     Strategy.MA_CROSS_TREND_1M: "移動平均クロス順張り (1分)",
-    Strategy.TREND_PULLBACK_1M: "強トレンド押し目・戻り目 (1分)",
+    Strategy.TREND_PULLBACK_1M: "トレンド押し目・戻り目 (1分)",
     Strategy.POSITION_CLOSE: "ポジション決済",
 }
 
@@ -107,6 +107,7 @@ class SignalEngine:
         bb_sigma: float = 2.0,
         strong_trend_slope_pips: float = 3.0,
         history_limit: int = 200,
+        atr_threshold_pips: float = 0.0,
     ) -> None:
         self.cooldown_seconds = cooldown_seconds
         self._bb_period = bb_period
@@ -115,6 +116,7 @@ class SignalEngine:
         self._pip_size = pip_size
         self._strong_trend_slope = strong_trend_slope_pips
         self._history_limit = history_limit
+        self._atr_threshold_pips = atr_threshold_pips
 
         self._last_signal: Dict[Tuple[Strategy, str, str, str], datetime] = {}
         self._last_indicator_timestamp: Dict[Tuple[Strategy, str, str, str], datetime] = {}
@@ -122,6 +124,14 @@ class SignalEngine:
             lambda: deque(maxlen=self._history_limit)
         )
         self._previous_snapshots: Dict[Tuple[str, str], IndicatorSnapshot] = {}
+
+    def set_atr_threshold(self, threshold_pips: float) -> None:
+        """Update ATR threshold in pips."""
+        self._atr_threshold_pips = threshold_pips
+
+    def get_atr_threshold(self) -> float:
+        """Get current ATR threshold in pips."""
+        return self._atr_threshold_pips
 
     def evaluate(
         self,
@@ -154,6 +164,14 @@ class SignalEngine:
         trend_ready = bool(ctx.indicator.trend.get("ready", True))
         if not trend_ready:
             return events
+
+        # Check ATR threshold for 1m timeframe
+        if timeframe == "1m" and self._atr_threshold_pips > 0:
+            atr14 = ctx.indicator.atr.get("14")
+            if atr14 is not None:
+                atr_pips = atr14 / self._pip_size
+                if atr_pips < self._atr_threshold_pips:
+                    return events
         for strategy in self._strategies_for_timeframe(timeframe):
             handler = self._strategy_handlers[strategy]
             event = handler(self, ctx)
@@ -178,6 +196,71 @@ class SignalEngine:
             if not events:
                 continue
             result[strat.value] = [event.as_dict() for event in events]
+        return result
+
+    def get_summary(
+        self,
+        strategy: Optional[Strategy] = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+    ) -> dict[str, dict[str, object]]:
+        """Calculate performance summary for each strategy."""
+        strategies: Iterable[Strategy]
+        if strategy is not None:
+            strategies = (strategy,)
+        else:
+            strategies = Strategy
+
+        result: dict[str, dict[str, object]] = {}
+        for strat in strategies:
+            events = list(self._histories.get(strat, []))
+            if not events:
+                continue
+
+            # Filter by date range
+            filtered = events
+            if from_date is not None:
+                filtered = [e for e in filtered if e.occurred_at >= from_date]
+            if to_date is not None:
+                filtered = [e for e in filtered if e.occurred_at <= to_date]
+
+            if not filtered:
+                continue
+
+            # Calculate statistics
+            total_signals = len(filtered)
+            open_signals = [e for e in filtered if e.trade_action in ("OPEN", "REVERSE")]
+            close_signals = [e for e in filtered if e.trade_action == "CLOSE"]
+
+            total_pnl = sum(e.pnl for e in close_signals if e.pnl is not None)
+            total_pips = sum(e.pips for e in close_signals if e.pips is not None)
+
+            wins = [e for e in close_signals if e.pips is not None and e.pips > 0]
+            losses = [e for e in close_signals if e.pips is not None and e.pips < 0]
+            win_count = len(wins)
+            loss_count = len(losses)
+            win_rate = (win_count / len(close_signals) * 100) if close_signals else 0.0
+
+            avg_pnl = total_pnl / len(close_signals) if close_signals else 0.0
+            max_profit = max((e.pnl for e in close_signals if e.pnl is not None), default=0.0)
+            max_loss = min((e.pnl for e in close_signals if e.pnl is not None), default=0.0)
+
+            result[strat.value] = {
+                "strategy": strat.value,
+                "strategy_name": STRATEGY_LABELS.get(strat, strat.value),
+                "total_signals": total_signals,
+                "total_trades": len(open_signals),
+                "total_closes": len(close_signals),
+                "win_count": win_count,
+                "loss_count": loss_count,
+                "win_rate": round(win_rate, 2),
+                "total_pnl": round(total_pnl, 2),
+                "total_pips": round(total_pips, 2),
+                "avg_pnl": round(avg_pnl, 2),
+                "max_profit": round(max_profit, 2),
+                "max_loss": round(max_loss, 2),
+            }
+
         return result
 
     # Internal helpers -------------------------------------------------

@@ -9,6 +9,8 @@ import { TradingConfigForm } from "./components/TradingConfigForm";
 import { StrategyAnalysisPanel } from "./components/StrategyHistoryPanel";
 import { TradingControlPanel } from "./components/TradingControlPanel";
 import { WebSocketControlPanel } from "./components/WebSocketControlPanel";
+import { OrderStatusPanel } from "./components/OrderStatusPanel";
+import { PerformancePanel } from "./components/PerformancePanel";
 
 const containerStyle: CSSProperties = {
   minHeight: "100vh",
@@ -48,7 +50,7 @@ const tabButtonStyle: CSSProperties = {
 
 function App(): JSX.Element {
   const { connect } = useMarketStore();
-  const [activeView, setActiveView] = useState<"monitor" | "analysis">("monitor");
+  const [activeView, setActiveView] = useState<"monitor" | "analysis" | "performance">("monitor");
 
   useEffect(() => {
     connect();
@@ -68,7 +70,7 @@ function App(): JSX.Element {
         <header style={cardStyle}>
           <h1 style={{ fontSize: "28px", marginBottom: "8px" }}>AuraFX Dashboard</h1>
           <p style={{ opacity: 0.7, fontSize: "15px" }}>
-            運用状況のモニタリングとロジック別の分析を切り替えて確認できます。
+            運用状況のモニタリング、ロジック別の分析、パフォーマンス統計を確認できます。
           </p>
           <div style={tabBarStyle}>
             <button
@@ -93,10 +95,21 @@ function App(): JSX.Element {
             >
               ロジック分析
             </button>
+            <button
+              type="button"
+              style={{
+                ...tabButtonStyle,
+                backgroundColor:
+                  activeView === "performance" ? "#2563eb" : tabButtonStyle.backgroundColor,
+              }}
+              onClick={() => setActiveView("performance")}
+            >
+              パフォーマンス分析
+            </button>
           </div>
         </header>
 
-        {activeView === "monitor" ? (
+        {activeView === "monitor" && (
           <div style={{ display: "grid", gap: "24px" }}>
             <div style={cardStyle}>
               <PriceTicker />
@@ -106,6 +119,7 @@ function App(): JSX.Element {
               <TradingConfigForm />
             </div>
             <TradingControlPanel />
+            <OrderStatusPanel />
             <WebSocketControlPanel />
             <div style={cardStyle}>
               <h2 style={sectionTitle}>保有ポジション</h2>
@@ -120,8 +134,15 @@ function App(): JSX.Element {
               <CandleTable />
             </div>
           </div>
-        ) : (
-          <StrategyAnalysisPanel />
+        )}
+
+        {activeView === "analysis" && <StrategyAnalysisPanel />}
+
+        {activeView === "performance" && (
+          <div style={cardStyle}>
+            <h2 style={sectionTitle}>ロジック別パフォーマンス統計</h2>
+            <PerformancePanel />
+          </div>
         )}
       </div>
     </div>

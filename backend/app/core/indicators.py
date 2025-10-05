@@ -24,6 +24,7 @@ class IndicatorSnapshot:
     rci: Dict[str, float]
     bb: Dict[str, Dict[str, float]]
     trend: Dict[str, float | str]
+    atr: Dict[str, float]
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -36,6 +37,7 @@ class IndicatorSnapshot:
             "rci": self._clean_dict(self.rci),
             "bb": {key: self._clean_dict(value) for key, value in self.bb.items()},
             "trend": self.trend,
+            "atr": self._clean_dict(self.atr),
         }
 
     def get_bb(self, period: int, sigma: float) -> Tuple[Optional[float], Optional[float]]:
@@ -82,6 +84,7 @@ class IndicatorEngine:
         pip_size: float,
         max_rows: int = 1000,
         trend_sma_period: int = 21,
+        atr_periods: list[int] = None,
     ) -> None:
         self._store = store
         self._sma_periods = sma_periods
@@ -94,6 +97,7 @@ class IndicatorEngine:
         self._pip_size = pip_size
         self._max_rows = max_rows
         self._trend_sma_period = trend_sma_period
+        self._atr_periods = atr_periods or [14]
         self._frames: Dict[Tuple[str, int], pd.DataFrame] = {}
 
     def set_trend_sma_period(self, period: int) -> None:
@@ -168,6 +172,15 @@ class IndicatorEngine:
                 "upper": upper,
             }
 
+        atr_values: Dict[str, float] = {}
+        for period in self._atr_periods:
+            atr_series = ta.atr(df["high"], df["low"], df["close"], length=period)
+            if atr_series is None or atr_series.empty:
+                continue
+            value = atr_series.iloc[-1]
+            if not pd.isna(value):
+                atr_values[str(period)] = float(value)
+
         trend = self._compute_trend(close_series)
 
         snapshot = IndicatorSnapshot(
@@ -180,6 +193,7 @@ class IndicatorEngine:
             rci=rci_values,
             bb=bb_values,
             trend=trend,
+            atr=atr_values,
         )
         self._store.set_snapshot(snapshot)
         return snapshot
