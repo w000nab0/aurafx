@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Activity, LayoutDashboard, Settings, Power } from "lucide-react";
+import { Activity, LayoutDashboard, Settings, Power, Pause, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import StrategySettingsModal from "@/components/StrategySettingsModal";
 import PerformanceView from "@/components/PerformanceView";
@@ -9,17 +9,32 @@ import SettingsView from "@/components/SettingsView";
 
 export default function Home() {
   const [view, setView] = useState<'dashboard' | 'performance' | 'settings'>('dashboard');
-  const [selectedStrategy, setSelectedStrategy] = useState<{ pair: string, type: string } | null>(null);
+  const [selectedStrategy, setSelectedStrategy] = useState<{ name: string, pair: string, type: string, status: string } | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const strategies = [
-    { pair: "USD/JPY", type: "Buy Loop", profit: "+¥8,200", status: "Running" },
-    { pair: "EUR/JPY", type: "Sell Loop", profit: "+¥4,250", status: "Running" }
-  ];
+  const [strategies, setStrategies] = useState([
+    { name: "My Steady JPY", pair: "USD/JPY", type: "Buy Loop", profit: "+¥8,200", status: "Running" },
+    { name: "Euro Scalper", pair: "EUR/JPY", type: "Sell Loop", profit: "+¥4,250", status: "Running" }
+  ]);
 
   const handleStrategyClick = (strat: any) => {
     setSelectedStrategy(strat);
     setIsModalOpen(true);
+  };
+
+  const toggleStatus = (e: React.MouseEvent, index: number) => {
+    e.stopPropagation();
+    const newStrats = [...strategies];
+    newStrats[index].status = newStrats[index].status === 'Running' ? 'Paused' : 'Running';
+    setStrategies(newStrats);
+  };
+
+  const deleteStrategy = (e: React.MouseEvent, index: number) => {
+    e.stopPropagation();
+    if (confirm("Delete this strategy?")) {
+      const newStrats = strategies.filter((_, i) => i !== index);
+      setStrategies(newStrats);
+    }
   };
 
   const renderView = () => {
@@ -44,7 +59,7 @@ export default function Home() {
               </div>
               <div className="flex items-center gap-10 text-base text-foreground/60 backdrop-blur-md bg-white/5 px-10 py-5 rounded-full border border-white/5 shadow-2xl shadow-primary/5">
                 <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_12px_rgba(52,211,153,0.6)]" />
+                  <div className={`w-2 h-2 rounded-full ${strategies.some(s => s.status === 'Running') ? 'bg-emerald-400 animate-pulse shadow-[0_0_12px_rgba(52,211,153,0.6)]' : 'bg-foreground/20'}`} />
                   <span>GMO Coin Connected</span>
                 </div>
                 <div className="w-px h-6 bg-white/10" />
@@ -107,21 +122,40 @@ export default function Home() {
                     <motion.div
                       whileHover={{ y: -6, scale: 1.02 }}
                       key={i}
-                      className="glass-card p-10 py-12 border-white/10 cursor-pointer group hover:border-primary/40 transition-all shadow-xl"
+                      className={`glass-card p-10 py-12 border-white/10 cursor-pointer group hover:border-primary/40 transition-all shadow-xl relative overflow-hidden ${strat.status === 'Paused' ? 'opacity-60 bg-black/40 grayscale-[0.5]' : ''}`}
                       onClick={() => handleStrategyClick(strat)}
                     >
+                      {strat.status === 'Paused' && (
+                        <div className="absolute top-0 right-0 p-2 px-4 bg-white/5 border-l border-b border-white/10 text-[10px] uppercase tracking-widest text-foreground/40 font-bold rounded-bl-xl">
+                          Paused
+                        </div>
+                      )}
+
                       <div className="flex justify-between items-start mb-8">
                         <div>
-                          <h3 className="text-2xl font-serif group-hover:text-primary transition-colors">{strat.pair}</h3>
-                          <p className="text-xs text-foreground/40 uppercase tracking-widest mt-1">{strat.type}</p>
+                          <h3 className="text-2xl font-serif group-hover:text-primary transition-colors">{strat.name}</h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] text-foreground/40 uppercase tracking-[0.2em] font-bold">{strat.pair}</span>
+                            <span className="w-1 h-1 rounded-full bg-foreground/20" />
+                            <span className="text-[10px] text-primary/60 uppercase tracking-widest">{strat.type}</span>
+                          </div>
                         </div>
-                        <Power size={20} className="text-primary group-hover:scale-125 transition-transform" />
+
+                        <div className="flex gap-4">
+                          <button
+                            onClick={(e) => toggleStatus(e, i)}
+                            className={`p-2 rounded-full transition-all ${strat.status === 'Running' ? 'bg-primary/10 text-primary hover:bg-primary/20' : 'bg-emerald-400/10 text-emerald-400 hover:bg-emerald-400/20'}`}
+                          >
+                            {strat.status === 'Running' ? <Pause size={18} /> : <Play size={18} />}
+                          </button>
+                        </div>
                       </div>
+
                       <div className="flex justify-between items-end">
                         <div className="text-xs text-primary/70 font-medium">
                           Grid: 148.5 - 152.0
                         </div>
-                        <div className="text-xl font-serif text-emerald-400">
+                        <div className={`text-xl font-serif ${strat.status === 'Paused' ? 'text-foreground/40' : 'text-emerald-400'}`}>
                           {strat.profit}
                         </div>
                       </div>

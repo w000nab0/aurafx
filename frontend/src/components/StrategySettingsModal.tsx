@@ -1,13 +1,14 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Info, ShieldAlert } from "lucide-react";
-import { useState } from "react";
+import { X, Info, ShieldAlert, Trash2, Clock, Target, CreditCard } from "lucide-react";
+import { useState, useEffect } from "react";
 
 interface StrategySettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   strategy: {
+    name?: string;
     pair: string;
     type: string;
   } | null;
@@ -15,6 +16,7 @@ interface StrategySettingsModalProps {
 
 export default function StrategySettingsModal({ isOpen, onClose, strategy }: StrategySettingsModalProps) {
   const [settings, setSettings] = useState({
+    name: '',
     side: 'BUY',
     rangeHigh: 155.000,
     rangeLow: 145.000,
@@ -27,7 +29,27 @@ export default function StrategySettingsModal({ isOpen, onClose, strategy }: Str
     spreadLimit: 2.0,
     maxLots: 1.0,
     minMarginRatio: 300,
+    autoExitEnabled: false,
+    autoExitPrice: 0.0,
+    autoExitTimeEnabled: false,
+    autoExitTime: '',
   });
+
+  useEffect(() => {
+    if (strategy) {
+      setSettings(prev => ({
+        ...prev,
+        name: strategy.name || (strategy.pair + ' Automation'),
+        side: strategy.type.includes('Buy') ? 'BUY' : 'SELL'
+      }));
+    }
+  }, [strategy]);
+
+  const handleCloseAll = () => {
+    if (confirm("即座にこのストラテジーの全ポジションを指定価格で成行決済します。よろしいですか？")) {
+      alert("全ポジションの決済リクエストを送信しました。");
+    }
+  };
 
   if (!strategy) return null;
 
@@ -56,17 +78,44 @@ export default function StrategySettingsModal({ isOpen, onClose, strategy }: Str
             </button>
 
             <header className="mb-12">
-              <h2 className="text-3xl font-serif text-primary mb-3">Detailed Strategy Settings</h2>
+              <h2 className="text-3xl font-serif text-primary mb-3">Strategy Configuration</h2>
               <p className="text-sm text-foreground/40 uppercase tracking-widest">
-                Configure parameters for {strategy.pair} automation
+                Define logic for {strategy.pair}
               </p>
             </header>
 
+            {/* Quick Actions Bar */}
+            <div className="mb-12 p-6 rounded-2xl bg-white/5 border border-white/10 flex justify-between items-center group">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-foreground/40 uppercase tracking-widest font-bold mb-1">Emergency Operations</span>
+                <span className="text-sm text-foreground/60 italic">Force close all active positions</span>
+              </div>
+              <button
+                onClick={handleCloseAll}
+                className="px-6 py-3 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-xl text-sm font-serif hover:bg-rose-500 hover:text-white transition-all flex items-center gap-2 group-hover:glow-rose"
+              >
+                <CreditCard size={18} />
+                Close All Positions
+              </button>
+            </div>
+
             <div className="grid grid-cols-2 gap-12">
-              {/* Left Column: Basic & Logic */}
+              {/* Left Column: Name & Basic */}
               <div className="space-y-12">
                 <section className="space-y-8">
-                  <h3 className="text-xs uppercase tracking-widest text-primary/60 mb-6 px-1">Basic & Range</h3>
+                  <h3 className="text-xs uppercase tracking-widest text-primary/60 mb-6 px-1 italic">Identity & Range</h3>
+
+                  {/* Strategy Name */}
+                  <div className="space-y-3">
+                    <label className="text-[10px] text-foreground/30 uppercase tracking-widest">Strategy Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., USD/JPY Grid Master"
+                      value={settings.name}
+                      onChange={(e) => setSettings({ ...settings, name: e.target.value })}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-base text-primary outline-none focus:border-primary/40 font-serif italic"
+                    />
+                  </div>
 
                   {/* Side Selection */}
                   <div className="flex gap-2 p-1 bg-white/5 rounded-xl border border-white/5">
@@ -104,6 +153,10 @@ export default function StrategySettingsModal({ isOpen, onClose, strategy }: Str
                       />
                     </div>
                   </div>
+                </section>
+
+                <section className="space-y-8">
+                  <h3 className="text-xs uppercase tracking-widest text-primary/60 mb-6 px-1 italic">Grid Logic</h3>
 
                   {/* Lot Size */}
                   <div className="space-y-3">
@@ -120,15 +173,7 @@ export default function StrategySettingsModal({ isOpen, onClose, strategy }: Str
                       onChange={(e) => setSettings({ ...settings, lotSize: parseFloat(e.target.value) })}
                       className="w-full accent-primary bg-white/5 h-1.5 rounded-full appearance-none cursor-pointer"
                     />
-                    <div className="flex justify-between text-[10px] text-foreground/20 italic">
-                      <span>0.01 = 100 units</span>
-                      <span>1.00 = 10,000 units</span>
-                    </div>
                   </div>
-                </section>
-
-                <section className="space-y-8">
-                  <h3 className="text-xs uppercase tracking-widest text-primary/60 mb-6 px-1">Grid Logic</h3>
 
                   {/* Price Interval (Step) */}
                   <div className="space-y-3">
@@ -173,56 +218,66 @@ export default function StrategySettingsModal({ isOpen, onClose, strategy }: Str
                 </section>
               </div>
 
-              {/* Right Column: Time Filters & Account Protection */}
+              {/* Right Column: Advanced Terminations */}
               <div className="space-y-12">
                 <section className="space-y-8">
-                  <h3 className="text-xs uppercase tracking-widest text-primary/60 mb-6 px-1">Time & Risk Filters</h3>
+                  <h3 className="text-xs uppercase tracking-widest text-primary/60 mb-6 px-1 italic">Automated Termination</h3>
 
-                  {/* Entry/Exit Interval */}
-                  <div className="space-y-6">
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center text-[10px] text-foreground/30 uppercase">
-                        <span>Entry Time Interval</span>
-                        <span className="text-primary text-sm">{settings.entryInterval}s</span>
+                  {/* Price Based Exit */}
+                  <div className="p-6 rounded-2xl bg-white/5 border border-white/10 space-y-4">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2 text-[10px] text-foreground/40 uppercase tracking-widest font-bold">
+                        <Target size={14} className="text-primary/60" />
+                        Target Rate Stop
                       </div>
                       <input
-                        type="range" min="0" max="300" step="5"
-                        value={settings.entryInterval}
-                        onChange={(e) => setSettings({ ...settings, entryInterval: parseInt(e.target.value) })}
-                        className="w-full accent-primary bg-white/5 h-1.5 rounded-full appearance-none cursor-pointer"
+                        type="checkbox"
+                        checked={settings.autoExitEnabled}
+                        onChange={(e) => setSettings({ ...settings, autoExitEnabled: e.target.checked })}
+                        className="w-4 h-4 accent-primary"
                       />
                     </div>
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center text-[10px] text-foreground/30 uppercase">
-                        <span>Exit Time Interval</span>
-                        <span className="text-primary text-sm">{settings.exitInterval}s</span>
-                      </div>
+                    <div className={`transition-opacity duration-300 ${settings.autoExitEnabled ? 'opacity-100' : 'opacity-20 pointer-events-none'}`}>
                       <input
-                        type="range" min="0" max="300" step="5"
-                        value={settings.exitInterval}
-                        onChange={(e) => setSettings({ ...settings, exitInterval: parseInt(e.target.value) })}
-                        className="w-full accent-primary bg-white/5 h-1.5 rounded-full appearance-none cursor-pointer"
+                        type="number"
+                        step="0.001"
+                        placeholder="145.000"
+                        value={settings.autoExitPrice}
+                        onChange={(e) => setSettings({ ...settings, autoExitPrice: parseFloat(e.target.value) })}
+                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-base font-mono text-primary outline-none focus:border-primary/40"
                       />
+                      <p className="text-[9px] text-foreground/30 mt-2 italic text-right">指定レート到達時、全決済して停止</p>
                     </div>
                   </div>
 
-                  {/* Spread Limit */}
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center text-[10px] text-foreground/30 uppercase">
-                      <span className="flex items-center gap-2">Max Allowed Spread <Info size={12} className="opacity-50" /></span>
-                      <span className="text-primary text-sm">{settings.spreadLimit.toFixed(1)} pips</span>
+                  {/* Time Based Exit */}
+                  <div className="p-6 rounded-2xl bg-white/5 border border-white/10 space-y-4">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2 text-[10px] text-foreground/40 uppercase tracking-widest font-bold">
+                        <Clock size={14} className="text-primary/60" />
+                        Target Time Stop
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={settings.autoExitTimeEnabled}
+                        onChange={(e) => setSettings({ ...settings, autoExitTimeEnabled: e.target.checked })}
+                        className="w-4 h-4 accent-primary"
+                      />
                     </div>
-                    <input
-                      type="range" min="0.1" max="10.0" step="0.1"
-                      value={settings.spreadLimit}
-                      onChange={(e) => setSettings({ ...settings, spreadLimit: parseFloat(e.target.value) })}
-                      className="w-full accent-primary bg-white/5 h-1.5 rounded-full appearance-none cursor-pointer"
-                    />
+                    <div className={`transition-opacity duration-300 ${settings.autoExitTimeEnabled ? 'opacity-100' : 'opacity-20 pointer-events-none'}`}>
+                      <input
+                        type="datetime-local"
+                        value={settings.autoExitTime}
+                        onChange={(e) => setSettings({ ...settings, autoExitTime: e.target.value })}
+                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-primary outline-none focus:border-primary/40"
+                      />
+                      <p className="text-[9px] text-foreground/30 mt-2 italic text-right">指定日時到達時、全決済して停止</p>
+                    </div>
                   </div>
                 </section>
 
                 <section className="space-y-8">
-                  <h3 className="text-xs uppercase tracking-widest text-primary/60 mb-6 px-1">Account Protection</h3>
+                  <h3 className="text-xs uppercase tracking-widest text-primary/60 mb-6 px-1 italic">Account Protection</h3>
 
                   {/* Max Lots & Min Margin */}
                   <div className="space-y-6">
@@ -255,19 +310,33 @@ export default function StrategySettingsModal({ isOpen, onClose, strategy }: Str
               </div>
             </div>
 
-            <footer className="mt-16 flex flex-col gap-5">
+            <footer className="mt-16 pt-8 border-t border-white/5 flex flex-col gap-4">
               <button
                 onClick={onClose}
                 className="w-full py-5 bg-primary text-background font-serif text-xl rounded-2xl hover:bg-accent transition-colors shadow-lg shadow-primary/10"
               >
-                Save & Restart Strategy
+                Apply & Save Configuration
               </button>
-              <button
-                onClick={onClose}
-                className="w-full py-5 text-foreground/60 font-serif text-lg hover:text-foreground transition-colors"
-              >
-                Discard Changes
-              </button>
+
+              <div className="flex gap-4">
+                <button
+                  onClick={onClose}
+                  className="flex-1 py-4 text-foreground/40 font-serif text-base hover:text-foreground transition-colors border border-white/5 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm("このストラテジーを削除しますか？持っているポジションは自動では決済されません（上の一括決済ボタンを使用してください）。")) {
+                      onClose();
+                    }
+                  }}
+                  className="px-6 py-4 text-rose-400/40 hover:text-rose-400 transition-colors border border-rose-400/10 hover:bg-rose-400/5 rounded-xl flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={18} />
+                  Delete
+                </button>
+              </div>
             </footer>
           </motion.div>
         </div>
