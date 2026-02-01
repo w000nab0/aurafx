@@ -1,34 +1,5 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
+node_modules
 .env
-.env.*
-!.env.example
-.venv/
-venv/
-.poetry/
-
-# Node / frontend
-node_modules/
-dist/
-build/
-.vite/
-.next/
-*.log
-
-# IDE / OS
+*.db
+dist
 .DS_Store
-.vscode/
-.idea/
-*.swp
-
-# Test / cache
-.pytest_cache/
-.mypy_cache/
-coverage/
-
-# Docker
-**/pgdata
-
